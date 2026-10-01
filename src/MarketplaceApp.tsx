@@ -17,6 +17,7 @@ import { useAuctionFeedRealtime } from './hooks/useAuctionFeedRealtime'
 import { useShoppingCart } from './hooks/useShoppingCart'
 import { closeAuction, getPublicAuctions, getSellerAuctions, placeBid, submitVerdict } from './services/api'
 import { getStoreListings } from './services/cartApi'
+import { getMyListings } from './services/listingApi'
 import type { Auction, Bid, MarketplaceListing, Verdict } from './types'
 
 type View = 'feed' | 'shop' | 'cart' | 'dashboard'
@@ -27,6 +28,7 @@ export default function MarketplaceApp() {
   const [auctions, setAuctions] = useState(mockAuctions)
   const [listings, setListings] = useState(mockListings)
   const [sellerAuctions, setSellerAuctions] = useState(mockSellerAuctions)
+  const [ownListings, setOwnListings] = useState<MarketplaceListing[]>([])
   const [view, setView] = useState<View>('feed')
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [session, setSession] = useState<Session | null>(null)
@@ -55,10 +57,11 @@ export default function MarketplaceApp() {
   useEffect(() => {
     if (!supabase || !session) return
     let cancelled = false
-    void Promise.all([getPublicAuctions(session), getSellerAuctions(session), getStoreListings(session)]).then(([rooms, sellerData, storeItems]) => {
+    void Promise.all([getPublicAuctions(session), getSellerAuctions(session), getStoreListings(session), emailConfirmed ? getMyListings(session) : Promise.resolve([])]).then(([rooms, sellerData, storeItems, products]) => {
       if (!cancelled) {
         setAuctions(rooms)
         setListings(storeItems)
+        setOwnListings(products)
         setSellerAuctions(sellerData.auctions)
         setTrustScore(sellerData.trustScore)
         setCompletedAuctions(sellerData.completedAuctions)
@@ -67,7 +70,7 @@ export default function MarketplaceApp() {
       if (!cancelled) showToast('Showing preview listings. Check the API and campus account configuration.', 'error')
     })
     return () => { cancelled = true }
-  }, [session])
+  }, [session, emailConfirmed])
 
   useEffect(() => {
     if (!toast) return
@@ -159,6 +162,11 @@ export default function MarketplaceApp() {
     return order
   }
 
+  const handleListingCreated = (listing: MarketplaceListing) => {
+    setOwnListings((current) => [listing, ...current.filter((item) => item.id !== listing.id)])
+    showToast(`${listing.title} is now listed for campus buyers.`)
+  }
+
   const searchResults = useMemo(() => search.trim() ? auctions.filter((auction) => auction.status === 'ACTIVE' && auction.title.toLowerCase().includes(search.toLowerCase())) : [], [auctions, search])
   const sellerRows = sellerAuctions
 
@@ -182,7 +190,7 @@ export default function MarketplaceApp() {
 
       <main className="min-w-0 px-4 pb-24 pt-6 sm:px-6 lg:px-7 lg:pb-8 lg:pt-7">
         {session && !emailConfirmed && <div role="status" className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#ead9b0] bg-[#fff9e9] px-4 py-3 text-sm text-[#765b22]"><span>Confirm your email to bid, sell, message sellers, or place orders.</span><Button variant="secondary" onClick={() => void resendConfirmation()} className="min-h-8 rounded-lg px-3 text-xs">Resend confirmation</Button></div>}
-        {selectedAuction ? <AuctionRoom auction={selectedAuction} userId={currentUserId} onBack={() => setSelectedId(null)} onBid={(amount) => handleBid(selectedAuction, amount)} onExpire={() => handleExpire(selectedAuction)} onNotice={showToast} onRoomUpdate={(patch) => updateRoom(selectedAuction.id, patch)} onVerdict={(decision) => handleVerdict(selectedAuction, decision)} /> : view === 'dashboard' ? <SellerDashboard auctions={sellerRows} userId={currentUserId} trustScore={trustScore} completedAuctions={completedAuctions} onVerdict={handleVerdict} onNotice={showToast} /> : view === 'shop' ? <StorePage listings={listings} cartHas={(postId) => userCart.items.some((item) => item.postId === postId)} onAdd={(listing) => void handleAddToCart(listing)} onOpenCart={() => setView('cart')} /> : view === 'cart' ? <ShoppingCartPage items={userCart.items} loading={userCart.loading} error={userCart.error} onShop={() => setView('shop')} onSetQuantity={userCart.setQuantity} onRemove={userCart.remove} onCheckout={handlePlaceOrder} onRefresh={userCart.refresh} /> : <GlobalFeed auctions={auctions} onOpen={(auction) => setSelectedId(auction.id)} />}
+        {selectedAuction ? <AuctionRoom auction={selectedAuction} userId={currentUserId} onBack={() => setSelectedId(null)} onBid={(amount) => handleBid(selectedAuction, amount)} onExpire={() => handleExpire(selectedAuction)} onNotice={showToast} onRoomUpdate={(patch) => updateRoom(selectedAuction.id, patch)} onVerdict={(decision) => handleVerdict(selectedAuction, decision)} /> : view === 'dashboard' ? <SellerDashboard auctions={sellerRows} userId={currentUserId} trustScore={trustScore} completedAuctions={completedAuctions} session={session} emailConfirmed={emailConfirmed} ownListings={ownListings} onRequestSignIn={() => setAuthMode('signin')} onListingCreated={handleListingCreated} onVerdict={handleVerdict} onNotice={showToast} /> : view === 'shop' ? <StorePage listings={listings} cartHas={(postId) => userCart.items.some((item) => item.postId === postId)} onAdd={(listing) => void handleAddToCart(listing)} onOpenCart={() => setView('cart')} /> : view === 'cart' ? <ShoppingCartPage items={userCart.items} loading={userCart.loading} error={userCart.error} onShop={() => setView('shop')} onSetQuantity={userCart.setQuantity} onRemove={userCart.remove} onCheckout={handlePlaceOrder} onRefresh={userCart.refresh} /> : <GlobalFeed auctions={auctions} onOpen={(auction) => setSelectedId(auction.id)} />}
       </main>
 
       {!selectedAuction && view === 'feed' && <aside className="hidden border-l border-[#e6ebe7] bg-[#f9faf9] px-4 py-6 xl:block"><div className="mb-6 flex items-center justify-between"><div><p className="text-[10px] font-bold uppercase tracking-[.12em] text-[#8b9891]">Your profile</p><p className="font-display mt-1 text-sm font-semibold text-[#2b4036]">{session?.user.user_metadata.full_name ?? 'Jordan Lee'}</p></div><img src={session?.user.user_metadata.avatar_url ?? 'https://i.pravatar.cc/96?img=32'} alt="" className="size-10 rounded-full object-cover" /></div><div className="rounded-[16px] border border-[#e4eae5] bg-white p-4"><div className="mb-3 flex items-center justify-between"><span className="text-xs font-semibold text-[#718078]">Seller standing</span><Sparkles size={14} className="text-[#9bad4e]" /></div><p className="font-display text-[31px] font-bold leading-none text-[#294339]">{trustScore}<span className="ml-1 text-sm font-semibold text-[#94a099]">/100</span></p><div className="mt-3"><TrustScoreBadge score={trustScore} completedAuctions={completedAuctions} noReserveHero /></div><p className="mt-3 border-t border-[#eff2ef] pt-3 text-[11px] leading-5 text-[#8a9690]">Your follow-through earns trust. Buyers can see your record in every room.</p></div><div className="mt-6"><div className="mb-3 flex items-center justify-between"><p className="text-xs font-bold uppercase tracking-[.1em] text-[#718078]">Ending soon</p></div><div className="space-y-2">{auctions.filter((item) => item.status === 'ACTIVE').slice(0, 3).map((item) => <button key={item.id} type="button" onClick={() => setSelectedId(item.id)} className="flex w-full items-center gap-2.5 rounded-xl border border-[#e8ede9] bg-white p-2 text-left transition hover:border-[#c9d8cd]"><img src={item.image} alt="" className="size-11 rounded-lg object-cover" /><span className="min-w-0 flex-1"><span className="block truncate text-xs font-semibold text-[#394b42]">{item.title}</span><span className="mt-1 block text-[10px] text-[#849189]">${item.currentHighestBid} · {item.bids.length} bids</span></span></button>)}</div></div><div className="mt-6 rounded-[14px] bg-[#dcecff] p-3.5"><div className="flex items-center gap-2 text-xs font-bold text-[#345b75]"><Store size={14} />Sell something nearby</div><p className="mt-1 text-[11px] leading-4 text-[#57758b]">List an item and let campus set the price.</p></div></aside>}
