@@ -7,7 +7,7 @@ type ApiBid = { id: string; amount: number; createdAt: string; bidder?: { id: st
 type ApiAuctionRoom = {
   id: string; postId: string; sellerId: string; currentHighestBid: number; highestBidderId: string | null
   isPublic: boolean; reservePrice?: number | null; status: Auction['status']; endsAt: string
-  post?: { id: string; title: string; description?: string | null; price: number; images?: { url: string }[] }
+  post?: { id: string; title: string; description?: string | null; price: number; locationCampus?: string | null; category?: { name: string }; images?: { url: string }[] }
   seller?: { id: string; displayName?: string | null; avatarUrl?: string | null; trustScore?: number; completedAuctions?: number }
   bids?: ApiBid[]
 }
@@ -20,14 +20,14 @@ export class ApiError extends Error {
 function normalizeRoom(room: ApiAuctionRoom): Auction {
   return {
     id: room.id, postId: room.postId, sellerId: room.sellerId,
-    title: room.post?.title ?? 'Campus listing', description: room.post?.description ?? '',
-    category: 'Campus finds', location: 'Campus',
-    image: room.post?.images?.[0]?.url ?? 'https://images.unsplash.com/photo-1493857671505-72967e2e2760?auto=format&fit=crop&w=1200&q=85',
+    title: room.post?.title ?? '', description: room.post?.description ?? '',
+    category: room.post?.category?.name ?? 'Uncategorized', location: room.post?.locationCampus ?? 'Location not provided',
+    image: room.post?.images?.[0]?.url ?? '',
     startingPrice: room.post?.price ?? 0, currentHighestBid: room.currentHighestBid,
     endsAt: room.endsAt, status: room.status, isPublic: room.isPublic, reservePrice: room.reservePrice,
-    highestBidderId: room.highestBidderId,
-    seller: { id: room.seller?.id ?? room.sellerId, displayName: room.seller?.displayName ?? 'Campus seller', avatarUrl: room.seller?.avatarUrl, trustScore: room.seller?.trustScore ?? 50, completedAuctions: room.seller?.completedAuctions ?? 0 },
-    bids: (room.bids ?? []).map((bid) => ({ id: bid.id, amount: bid.amount, createdAt: bid.createdAt, bidder: { id: bid.bidder?.id ?? 'unknown', displayName: bid.bidder?.displayName ?? 'Campus bidder', avatarUrl: bid.bidder?.avatarUrl } })),
+    highestBidderId: room.highestBidderId, noReserve: room.reservePrice == null,
+    seller: { id: room.seller?.id ?? room.sellerId, displayName: room.seller?.displayName ?? '', avatarUrl: room.seller?.avatarUrl, trustScore: room.seller?.trustScore ?? 0, completedAuctions: room.seller?.completedAuctions ?? 0 },
+    bids: (room.bids ?? []).map((bid) => ({ id: bid.id, amount: bid.amount, createdAt: bid.createdAt, bidder: { id: bid.bidder?.id ?? '', displayName: bid.bidder?.displayName ?? 'Bidder', avatarUrl: bid.bidder?.avatarUrl } })),
   }
 }
 
@@ -64,7 +64,7 @@ export async function getAuctionRoom(roomId: string, session?: Session | null): 
 export async function placeBid(roomId: string, amount: number, session?: Session | null): Promise<{ bid: Bid; auction: Auction }> {
   const result = await request<{ bid: ApiBid; auctionRoom: ApiAuctionRoom }>(`/auctions/${encodeURIComponent(roomId)}/bids`, { method: 'POST', body: JSON.stringify({ amount }) }, session)
   const auction = normalizeRoom(result.auctionRoom)
-  const bid = auction.bids.find((item) => item.id === result.bid.id) ?? { ...result.bid, bidder: result.bid.bidder ? { id: result.bid.bidder.id, displayName: result.bid.bidder.displayName ?? 'Campus bidder', avatarUrl: result.bid.bidder.avatarUrl } : { id: 'you', displayName: 'You' } }
+  const bid = auction.bids.find((item) => item.id === result.bid.id) ?? { ...result.bid, bidder: result.bid.bidder ? { id: result.bid.bidder.id, displayName: result.bid.bidder.displayName ?? 'Bidder', avatarUrl: result.bid.bidder.avatarUrl } : { id: '', displayName: 'Bidder' } }
   return { bid, auction }
 }
 

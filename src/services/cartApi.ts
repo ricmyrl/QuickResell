@@ -23,9 +23,9 @@ function normalizePost(post: ApiPost): MarketplaceListing {
   return {
     id: post.id, title: post.title, description: post.description ?? '', price: post.price,
     originalPrice: post.originalPrice, quantityAvailable: post.quantityAvailable,
-    category: post.category?.name ?? 'Campus finds', location: post.locationCampus ?? 'Campus',
-    image: post.images?.[0]?.url ?? 'https://images.unsplash.com/photo-1493857671505-72967e2e2760?auto=format&fit=crop&w=1000&q=85',
-    seller: { id: post.user?.id ?? 'unknown', displayName: post.user?.displayName ?? 'Campus seller', avatarUrl: post.user?.avatarUrl, trustScore: post.user?.trustScore ?? 50 },
+    category: post.category?.name ?? 'Uncategorized', location: post.locationCampus ?? 'Location not provided',
+    image: post.images?.[0]?.url ?? '',
+    seller: { id: post.user?.id ?? '', displayName: post.user?.displayName ?? '', avatarUrl: post.user?.avatarUrl, trustScore: post.user?.trustScore ?? 0 },
   }
 }
 

@@ -27,7 +27,7 @@ export function useAuctionRealtime(roomId: string, onAuctionUpdate: (update: Roo
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'Bid', filter: `auctionRoomId=eq.${roomId}` }, ({ new: row }) => {
         const bid = row as { id: string; amount: number; createdAt: string; bidderId: string }
         if (bidRef.current) {
-          bidRef.current({ id: bid.id, amount: bid.amount, createdAt: bid.createdAt, bidder: { id: bid.bidderId, displayName: 'Campus bidder' } })
+          bidRef.current({ id: bid.id, amount: bid.amount, createdAt: bid.createdAt, bidder: { id: bid.bidderId, displayName: 'Bidder' } })
         }
       })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'AuctionRoom', filter: `id=eq.${roomId}` }, ({ new: row }) => {

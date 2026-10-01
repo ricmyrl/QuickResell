@@ -10,25 +10,24 @@ import { AuthPage } from './components/auth/AuthPage'
 import { ShoppingCartPage } from './components/cart/ShoppingCartPage'
 import { StorePage } from './components/store/StorePage'
 import { TrustScoreBadge } from './components/common/TrustScoreBadge'
-import { mockAuctions, mockSellerAuctions } from './data/mockAuctions'
-import { mockListings } from './data/mockListings'
 import { supabase } from './lib/supabase'
 import { useAuctionFeedRealtime } from './hooks/useAuctionFeedRealtime'
 import { useShoppingCart } from './hooks/useShoppingCart'
 import { closeAuction, getPublicAuctions, getSellerAuctions, placeBid, submitVerdict } from './services/api'
 import { getStoreListings } from './services/cartApi'
-import { getMyListings } from './services/listingApi'
-import type { Auction, Bid, MarketplaceListing, Verdict } from './types'
+import { getListingCategories, getMyListings } from './services/listingApi'
+import type { Auction, MarketplaceListing, Verdict } from './types'
 
 type View = 'feed' | 'shop' | 'cart' | 'dashboard'
 type AuthMode = 'signin' | 'register'
 type ToastMessage = { message: string; kind: 'success' | 'error' }
 
 export default function MarketplaceApp() {
-  const [auctions, setAuctions] = useState(mockAuctions)
-  const [listings, setListings] = useState(mockListings)
-  const [sellerAuctions, setSellerAuctions] = useState(mockSellerAuctions)
+  const [auctions, setAuctions] = useState<Auction[]>([])
+  const [listings, setListings] = useState<MarketplaceListing[]>([])
+  const [sellerAuctions, setSellerAuctions] = useState<Auction[]>([])
   const [ownListings, setOwnListings] = useState<MarketplaceListing[]>([])
+  const [categories, setCategories] = useState<string[]>([])
   const [view, setView] = useState<View>('feed')
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [session, setSession] = useState<Session | null>(null)
@@ -36,20 +35,41 @@ export default function MarketplaceApp() {
   const [toast, setToast] = useState<ToastMessage | null>(null)
   const [search, setSearch] = useState('')
   const [searchOpen, setSearchOpen] = useState(false)
-  const [trustScore, setTrustScore] = useState(96)
-  const [completedAuctions, setCompletedAuctions] = useState(12)
+  const [trustScore, setTrustScore] = useState<number | null>(null)
+  const [completedAuctions, setCompletedAuctions] = useState<number | null>(null)
+  const [authLoading, setAuthLoading] = useState(Boolean(supabase))
+  const [loadedUserId, setLoadedUserId] = useState<string | null>(null)
+  const [dataError, setDataError] = useState('')
+  const [dataRetry, setDataRetry] = useState(0)
   const emailConfirmed = Boolean(session?.user.email_confirmed_at)
-  const currentUserId = session?.user.id ?? 'demo-seller'
+  const currentUserId = session?.user.id ?? ''
   const userCart = useShoppingCart(currentUserId, Boolean(session))
   const selectedAuction = auctions.find((auction) => auction.id === selectedId) ?? sellerAuctions.find((auction) => auction.id === selectedId) ?? null
-  const demoMode = !session || !supabase
+  const dataLoading = Boolean(session && loadedUserId !== `${session.user.id}:${emailConfirmed}`)
 
   useEffect(() => {
-    if (!supabase) return
-    void supabase.auth.getSession().then(({ data }) => setSession(data.session))
+    if (!supabase) {
+      return
+    }
+    void supabase.auth.getSession().then(({ data }) => {
+      setSession(data.session)
+      setAuthLoading(false)
+    }).catch(() => setAuthLoading(false))
     const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
       setSession(nextSession)
       if (nextSession?.user.email_confirmed_at) setAuthMode(null)
+      if (!nextSession) {
+        setAuctions([])
+        setListings([])
+        setSellerAuctions([])
+        setOwnListings([])
+        setCategories([])
+        setTrustScore(null)
+        setCompletedAuctions(null)
+        setLoadedUserId(null)
+        setDataError('')
+      }
+      setAuthLoading(false)
     })
     return () => listener.subscription.unsubscribe()
   }, [])
@@ -57,20 +77,33 @@ export default function MarketplaceApp() {
   useEffect(() => {
     if (!supabase || !session) return
     let cancelled = false
-    void Promise.all([getPublicAuctions(session), getSellerAuctions(session), getStoreListings(session), emailConfirmed ? getMyListings(session) : Promise.resolve([])]).then(([rooms, sellerData, storeItems, products]) => {
+    void Promise.all([getPublicAuctions(session), getSellerAuctions(session), getStoreListings(session), emailConfirmed ? getMyListings(session) : Promise.resolve([]), getListingCategories(session)]).then(([rooms, sellerData, storeItems, products, listingCategories]) => {
       if (!cancelled) {
         setAuctions(rooms)
         setListings(storeItems)
         setOwnListings(products)
+        setCategories(listingCategories.map((category) => category.name))
         setSellerAuctions(sellerData.auctions)
         setTrustScore(sellerData.trustScore)
         setCompletedAuctions(sellerData.completedAuctions)
+        setDataError('')
+        setLoadedUserId(`${session.user.id}:${emailConfirmed}`)
       }
-    }).catch(() => {
-      if (!cancelled) showToast('Showing preview listings. Check the API and campus account configuration.', 'error')
+    }).catch((caught: unknown) => {
+      if (!cancelled) {
+        setAuctions([])
+        setListings([])
+        setOwnListings([])
+        setSellerAuctions([])
+        setCategories([])
+        setTrustScore(null)
+        setCompletedAuctions(null)
+        setDataError(caught instanceof Error ? caught.message : 'Marketplace data could not be loaded.')
+        setLoadedUserId(`${session.user.id}:${emailConfirmed}`)
+      }
     })
     return () => { cancelled = true }
-  }, [session, emailConfirmed])
+  }, [session, emailConfirmed, dataRetry])
 
   useEffect(() => {
     if (!toast) return
@@ -99,46 +132,34 @@ export default function MarketplaceApp() {
   })
 
   const handleBid = async (room: Auction, amount: number) => {
-    if (session && !emailConfirmed) throw new Error('Confirm your email before placing bids.')
-    if (demoMode) {
-      if (amount <= room.currentHighestBid) throw new Error('Your bid must be higher than the current bid.')
-      const bidder: Bid = { id: `demo-${Date.now()}`, amount, createdAt: new Date().toISOString(), bidder: { id: currentUserId, displayName: session?.user.user_metadata.full_name ?? 'You' } }
-      const endsAt = new Date(room.endsAt).getTime() - Date.now() <= 10_000 ? new Date(new Date(room.endsAt).getTime() + 30_000).toISOString() : room.endsAt
-      updateRoom(room.id, { currentHighestBid: amount, highestBidderId: currentUserId, endsAt, bids: [bidder, ...room.bids] })
-      return
-    }
+    if (!session) throw new Error('Sign in before placing a bid.')
+    if (!emailConfirmed) throw new Error('Confirm your email before placing bids.')
     const result = await placeBid(room.id, amount, session)
     updateRoom(room.id, { ...result.auction, bids: [result.bid, ...room.bids.filter((bid) => bid.id !== result.bid.id)] })
   }
 
   const handleExpire = async (room: Auction) => {
-    if (session && !emailConfirmed) throw new Error('Confirm your email before managing auctions.')
-    if (demoMode) {
-      updateRoom(room.id, { status: room.highestBidderId ? 'PENDING_APPROVAL' : 'CLOSED' })
-      return
-    }
+    if (!session || !emailConfirmed) return
     updateRoom(room.id, await closeAuction(room.id, session))
   }
 
   const handleVerdict = async (room: Auction, decision: Verdict) => {
-    if (session && !emailConfirmed) throw new Error('Confirm your email before managing auctions.')
-    if (demoMode) {
-      const nextStatus = decision === 'ACCEPT' ? 'SOLD' : 'REJECTED'
-      updateRoom(room.id, { status: nextStatus })
-      setSellerAuctions((items) => items.map((item) => item.id === room.id ? { ...item, status: nextStatus } : item))
-      setTrustScore((score) => Math.max(0, Math.min(100, score + (decision === 'ACCEPT' ? 5 : -20))))
-      if (decision === 'ACCEPT') setCompletedAuctions((count) => count + 1)
-      return
-    }
+    if (!session) throw new Error('Sign in before managing auctions.')
+    if (!emailConfirmed) throw new Error('Confirm your email before managing auctions.')
     const result = await submitVerdict(room.id, decision, session)
     updateRoom(room.id, result.auction)
     setTrustScore(result.trustScore)
-    if (decision === 'ACCEPT') setCompletedAuctions((count) => count + 1)
+    if (decision === 'ACCEPT') setCompletedAuctions((count) => count === null ? count : count + 1)
     setSellerAuctions((items) => items.map((item) => item.id === room.id ? result.auction : item))
   }
 
   const handleAddToCart = async (listing: MarketplaceListing) => {
-    if (session && !emailConfirmed) {
+    if (!session) {
+      setAuthMode('signin')
+      showToast('Sign in before using the cart.', 'error')
+      return
+    }
+    if (!emailConfirmed) {
       showToast('Confirm your email before using the cart.', 'error')
       return
     }
@@ -151,7 +172,8 @@ export default function MarketplaceApp() {
   }
 
   const handlePlaceOrder = async () => {
-    if (session && !emailConfirmed) throw new Error('Confirm your email before checking out.')
+    if (!session) throw new Error('Sign in before checking out.')
+    if (!emailConfirmed) throw new Error('Confirm your email before checking out.')
     const order = await userCart.checkout()
     setListings((current) => current.map((listing) => {
       const purchased = order.items.find((item) => item.postId === listing.id)
@@ -169,6 +191,7 @@ export default function MarketplaceApp() {
 
   const searchResults = useMemo(() => search.trim() ? auctions.filter((auction) => auction.status === 'ACTIVE' && auction.title.toLowerCase().includes(search.toLowerCase())) : [], [auctions, search])
   const sellerRows = sellerAuctions
+  const apiStatus = authLoading ? 'Connecting' : !session ? 'Sign in required' : dataLoading ? 'Loading live data' : dataError ? 'API unavailable' : 'Live connected'
 
   const nav = <>
     <p className="mb-2 px-3 text-[10px] font-bold uppercase tracking-[.15em] text-[#98a39d]">Marketplace</p>
@@ -182,7 +205,7 @@ export default function MarketplaceApp() {
     <header className="sticky top-0 z-30 flex h-[68px] items-center gap-4 border-b border-[#e6ebe7] bg-white/95 px-4 backdrop-blur-md sm:px-6 lg:px-8">
       <button type="button" onClick={() => { setView('feed'); setSelectedId(null) }} className="flex shrink-0 items-center gap-2.5"><span className="grid size-9 place-items-center rounded-xl bg-[#d4f06b] text-[#243a33]"><ShoppingBag size={19} strokeWidth={2.5} /></span><span className="font-display text-[17px] font-bold tracking-[-.03em]">quick<span className="text-[#70917c]">resell</span></span></button>
       <div className={`relative mx-auto w-full max-w-[540px] ${searchOpen ? 'block' : 'hidden'} md:block`}><Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#96a19b]" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search finds around campus" className="h-10 w-full rounded-xl border border-[#e7ece8] bg-[#f7f9f7] pl-10 pr-4 text-sm outline-none transition focus:border-[#9ab4a2] focus:bg-white" />{search && <div className="absolute left-0 right-0 top-12 z-40 overflow-hidden rounded-xl border border-[#e6ebe7] bg-white shadow-lg">{searchResults.map((auction) => <button key={auction.id} type="button" onClick={() => { setSelectedId(auction.id); setSearch(''); setSearchOpen(false) }} className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-[#f5f8f5]"><img src={auction.image} alt="" className="size-10 rounded-lg object-cover" /><span className="min-w-0 flex-1 truncate text-sm font-semibold">{auction.title}</span><span className="text-xs text-[#74847a]">${auction.currentHighestBid}</span></button>)}{!searchResults.length && <p className="p-4 text-sm text-[#849189]">No matching live listings.</p>}</div>}</div>
-      <div className="ml-auto flex shrink-0 items-center gap-1.5"><span className={`hidden items-center gap-1.5 rounded-full px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-[.08em] sm:inline-flex ${demoMode ? 'bg-[#f1f2e7] text-[#687145]' : 'bg-[#ebf5ee] text-[#477358]'}`}><span className={`size-1.5 rounded-full ${demoMode ? 'bg-[#aab365]' : 'bg-[#66a178]'}`} />{demoMode ? 'Preview mode' : 'Live connected'}</span><span className="relative"><IconButton label={`Open cart, ${userCart.items.reduce((sum, item) => sum + item.quantity, 0)} items`} onClick={() => { setSelectedId(null); setView('cart') }}><ShoppingCart size={18} /></IconButton>{userCart.items.length > 0 && <span className="pointer-events-none absolute right-0 top-0 grid min-h-4 min-w-4 place-items-center rounded-full bg-[#d94b3d] px-1 text-[9px] font-bold text-white">{userCart.items.reduce((sum, item) => sum + item.quantity, 0)}</span>}</span><IconButton label="Notifications"><Bell size={17} /></IconButton>{session ? <button type="button" onClick={() => void supabase?.auth.signOut()} className="ml-1 flex items-center gap-2 rounded-full border border-[#e7ece8] p-1 pr-3"><img src={session.user.user_metadata.avatar_url ?? 'https://i.pravatar.cc/96?img=32'} alt="" className="size-8 rounded-full object-cover" /><span className="hidden max-w-24 truncate text-xs font-semibold sm:block">{session.user.user_metadata.full_name ?? session.user.email}</span></button> : <Button variant="secondary" onClick={() => setAuthMode('signin')} className="ml-1 min-h-9 rounded-lg px-3 text-xs">Sign in</Button>}</div>
+      <div className="ml-auto flex shrink-0 items-center gap-1.5"><span className={`hidden items-center gap-1.5 rounded-full px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-[.08em] sm:inline-flex ${dataError ? 'bg-[#fff1ee] text-[#9c493d]' : 'bg-[#ebf5ee] text-[#477358]'}`}><span className={`size-1.5 rounded-full ${dataError ? 'bg-[#c45c4d]' : 'bg-[#66a178]'}`} />{apiStatus}</span><span className="relative"><IconButton label={`Open cart, ${userCart.items.reduce((sum, item) => sum + item.quantity, 0)} items`} onClick={() => { setSelectedId(null); setView('cart') }}><ShoppingCart size={18} /></IconButton>{userCart.items.length > 0 && <span className="pointer-events-none absolute right-0 top-0 grid min-h-4 min-w-4 place-items-center rounded-full bg-[#d94b3d] px-1 text-[9px] font-bold text-white">{userCart.items.reduce((sum, item) => sum + item.quantity, 0)}</span>}</span><IconButton label="Notifications"><Bell size={17} /></IconButton>{session ? <button type="button" onClick={() => void supabase?.auth.signOut()} className="ml-1 flex items-center gap-2 rounded-full border border-[#e7ece8] p-1 pr-3"><span aria-hidden="true" className="grid size-8 place-items-center rounded-full bg-[#e9f0e8] text-xs font-bold text-[#456555]">{(session.user.user_metadata.full_name ?? session.user.email ?? '?').slice(0, 1).toUpperCase()}</span><span className="hidden max-w-24 truncate text-xs font-semibold sm:block">{session.user.user_metadata.full_name ?? session.user.email}</span></button> : <Button variant="secondary" onClick={() => setAuthMode('signin')} className="ml-1 min-h-9 rounded-lg px-3 text-xs">Sign in</Button>}</div>
     </header>
 
     <div className="mx-auto grid max-w-[1640px] grid-cols-1 lg:grid-cols-[210px_minmax(0,1fr)] xl:grid-cols-[220px_minmax(0,1fr)_270px]">
@@ -190,10 +213,10 @@ export default function MarketplaceApp() {
 
       <main className="min-w-0 px-4 pb-24 pt-6 sm:px-6 lg:px-7 lg:pb-8 lg:pt-7">
         {session && !emailConfirmed && <div role="status" className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#ead9b0] bg-[#fff9e9] px-4 py-3 text-sm text-[#765b22]"><span>Confirm your email to bid, sell, message sellers, or place orders.</span><Button variant="secondary" onClick={() => void resendConfirmation()} className="min-h-8 rounded-lg px-3 text-xs">Resend confirmation</Button></div>}
-        {selectedAuction ? <AuctionRoom auction={selectedAuction} userId={currentUserId} onBack={() => setSelectedId(null)} onBid={(amount) => handleBid(selectedAuction, amount)} onExpire={() => handleExpire(selectedAuction)} onNotice={showToast} onRoomUpdate={(patch) => updateRoom(selectedAuction.id, patch)} onVerdict={(decision) => handleVerdict(selectedAuction, decision)} /> : view === 'dashboard' ? <SellerDashboard auctions={sellerRows} userId={currentUserId} trustScore={trustScore} completedAuctions={completedAuctions} session={session} emailConfirmed={emailConfirmed} ownListings={ownListings} onRequestSignIn={() => setAuthMode('signin')} onListingCreated={handleListingCreated} onVerdict={handleVerdict} onNotice={showToast} /> : view === 'shop' ? <StorePage listings={listings} cartHas={(postId) => userCart.items.some((item) => item.postId === postId)} onAdd={(listing) => void handleAddToCart(listing)} onOpenCart={() => setView('cart')} /> : view === 'cart' ? <ShoppingCartPage items={userCart.items} loading={userCart.loading} error={userCart.error} onShop={() => setView('shop')} onSetQuantity={userCart.setQuantity} onRemove={userCart.remove} onCheckout={handlePlaceOrder} onRefresh={userCart.refresh} /> : <GlobalFeed auctions={auctions} onOpen={(auction) => setSelectedId(auction.id)} />}
+        {authLoading ? <div className="grid min-h-72 place-items-center rounded-xl border border-[#e4eae5] bg-white text-sm text-[#849189]">Connecting to your account…</div> : !session ? <div className="mx-auto grid min-h-[55vh] max-w-lg place-items-center text-center"><div><span className="mx-auto grid size-14 place-items-center rounded-2xl bg-[#e9f0e8] text-[#537666]"><ShieldCheck size={24} /></span><h1 className="font-display mt-5 text-2xl font-semibold text-[#263b33]">Sign in to browse the marketplace</h1><p className="mt-2 text-sm leading-6 text-[#7a8781]">Live listings and auctions load from your campus marketplace account.</p><Button onClick={() => setAuthMode('signin')} className="mt-5">Sign in</Button></div></div> : dataError ? <div role="alert" className="mx-auto mt-12 max-w-lg rounded-xl border border-[#f0d7d2] bg-white p-6 text-center"><h1 className="font-display text-xl font-semibold text-[#263b33]">Marketplace data unavailable</h1><p className="mt-2 break-words text-sm text-[#7a8781]">{dataError}</p><Button variant="secondary" onClick={() => setDataRetry((attempt) => attempt + 1)} className="mt-4">Retry</Button></div> : dataLoading ? <div className="grid min-h-72 place-items-center rounded-xl border border-[#e4eae5] bg-white text-sm text-[#849189]">Loading marketplace data…</div> : selectedAuction ? <AuctionRoom auction={selectedAuction} userId={currentUserId} onBack={() => setSelectedId(null)} onBid={(amount) => handleBid(selectedAuction, amount)} onExpire={() => handleExpire(selectedAuction)} onNotice={showToast} onRoomUpdate={(patch) => updateRoom(selectedAuction.id, patch)} onVerdict={(decision) => handleVerdict(selectedAuction, decision)} /> : view === 'dashboard' ? <SellerDashboard auctions={sellerRows} userId={currentUserId} trustScore={trustScore} completedAuctions={completedAuctions} session={session} emailConfirmed={emailConfirmed} ownListings={ownListings} onRequestSignIn={() => setAuthMode('signin')} onListingCreated={handleListingCreated} onVerdict={handleVerdict} onNotice={showToast} /> : view === 'shop' ? <StorePage listings={listings} categories={categories} cartHas={(postId) => userCart.items.some((item) => item.postId === postId)} onAdd={(listing) => void handleAddToCart(listing)} onOpenCart={() => setView('cart')} /> : view === 'cart' ? <ShoppingCartPage items={userCart.items} loading={userCart.loading} error={userCart.error} onShop={() => setView('shop')} onSetQuantity={userCart.setQuantity} onRemove={userCart.remove} onCheckout={handlePlaceOrder} onRefresh={userCart.refresh} /> : <GlobalFeed auctions={auctions} categories={categories} onOpen={(auction) => setSelectedId(auction.id)} />}
       </main>
 
-      {!selectedAuction && view === 'feed' && <aside className="hidden border-l border-[#e6ebe7] bg-[#f9faf9] px-4 py-6 xl:block"><div className="mb-6 flex items-center justify-between"><div><p className="text-[10px] font-bold uppercase tracking-[.12em] text-[#8b9891]">Your profile</p><p className="font-display mt-1 text-sm font-semibold text-[#2b4036]">{session?.user.user_metadata.full_name ?? 'Jordan Lee'}</p></div><img src={session?.user.user_metadata.avatar_url ?? 'https://i.pravatar.cc/96?img=32'} alt="" className="size-10 rounded-full object-cover" /></div><div className="rounded-[16px] border border-[#e4eae5] bg-white p-4"><div className="mb-3 flex items-center justify-between"><span className="text-xs font-semibold text-[#718078]">Seller standing</span><Sparkles size={14} className="text-[#9bad4e]" /></div><p className="font-display text-[31px] font-bold leading-none text-[#294339]">{trustScore}<span className="ml-1 text-sm font-semibold text-[#94a099]">/100</span></p><div className="mt-3"><TrustScoreBadge score={trustScore} completedAuctions={completedAuctions} noReserveHero /></div><p className="mt-3 border-t border-[#eff2ef] pt-3 text-[11px] leading-5 text-[#8a9690]">Your follow-through earns trust. Buyers can see your record in every room.</p></div><div className="mt-6"><div className="mb-3 flex items-center justify-between"><p className="text-xs font-bold uppercase tracking-[.1em] text-[#718078]">Ending soon</p></div><div className="space-y-2">{auctions.filter((item) => item.status === 'ACTIVE').slice(0, 3).map((item) => <button key={item.id} type="button" onClick={() => setSelectedId(item.id)} className="flex w-full items-center gap-2.5 rounded-xl border border-[#e8ede9] bg-white p-2 text-left transition hover:border-[#c9d8cd]"><img src={item.image} alt="" className="size-11 rounded-lg object-cover" /><span className="min-w-0 flex-1"><span className="block truncate text-xs font-semibold text-[#394b42]">{item.title}</span><span className="mt-1 block text-[10px] text-[#849189]">${item.currentHighestBid} · {item.bids.length} bids</span></span></button>)}</div></div><div className="mt-6 rounded-[14px] bg-[#dcecff] p-3.5"><div className="flex items-center gap-2 text-xs font-bold text-[#345b75]"><Store size={14} />Sell something nearby</div><p className="mt-1 text-[11px] leading-4 text-[#57758b]">List an item and let campus set the price.</p></div></aside>}
+      {!selectedAuction && view === 'feed' && session && <aside className="hidden border-l border-[#e6ebe7] bg-[#f9faf9] px-4 py-6 xl:block"><div className="mb-6 flex items-center justify-between"><div><p className="text-[10px] font-bold uppercase tracking-[.12em] text-[#8b9891]">Your profile</p><p className="font-display mt-1 max-w-44 truncate text-sm font-semibold text-[#2b4036]">{session.user.user_metadata.full_name ?? session.user.email}</p></div>{session.user.user_metadata.avatar_url && <img src={session.user.user_metadata.avatar_url} alt="" className="size-10 rounded-full object-cover" />}</div>{trustScore !== null && completedAuctions !== null && <div className="rounded-[16px] border border-[#e4eae5] bg-white p-4"><div className="mb-3 flex items-center justify-between"><span className="text-xs font-semibold text-[#718078]">Seller standing</span><Sparkles size={14} className="text-[#9bad4e]" /></div><p className="font-display text-[31px] font-bold leading-none text-[#294339]">{trustScore}<span className="ml-1 text-sm font-semibold text-[#94a099]">/100</span></p><div className="mt-3"><TrustScoreBadge score={trustScore} completedAuctions={completedAuctions} noReserveHero /></div><p className="mt-3 border-t border-[#eff2ef] pt-3 text-[11px] leading-5 text-[#8a9690]">Your follow-through earns trust. Buyers can see your record in every room.</p></div>}<div className="mt-6"><div className="mb-3 flex items-center justify-between"><p className="text-xs font-bold uppercase tracking-[.1em] text-[#718078]">Ending soon</p></div><div className="space-y-2">{auctions.filter((item) => item.status === 'ACTIVE').slice(0, 3).map((item) => <button key={item.id} type="button" onClick={() => setSelectedId(item.id)} className="flex w-full items-center gap-2.5 rounded-xl border border-[#e8ede9] bg-white p-2 text-left transition hover:border-[#c9d8cd]"><img src={item.image} alt="" className="size-11 rounded-lg object-cover" /><span className="min-w-0 flex-1"><span className="block truncate text-xs font-semibold text-[#394b42]">{item.title}</span><span className="mt-1 block text-[10px] text-[#849189]">${item.currentHighestBid} · {item.bids.length} bids</span></span></button>)}</div></div><button type="button" onClick={() => { setView('dashboard'); setSelectedId(null) }} className="mt-6 w-full rounded-[14px] bg-[#dcecff] p-3.5 text-left"><span className="flex items-center gap-2 text-xs font-bold text-[#345b75]"><Store size={14} />Sell something nearby</span><span className="mt-1 block text-[11px] leading-4 text-[#57758b]">Create a listing in Seller Studio.</span></button></aside>}
     </div>
 
     <nav className="fixed inset-x-0 bottom-0 z-30 flex justify-around border-t border-[#e3e9e4] bg-white/95 px-3 py-2 backdrop-blur lg:hidden"><button type="button" onClick={() => { setView('feed'); setSelectedId(null) }} className={`flex min-w-16 flex-col items-center gap-1 py-1 text-[10px] font-semibold ${view === 'feed' ? 'text-[#376b59]' : 'text-[#839087]'}`}><Compass size={19} />Auctions</button><button type="button" onClick={() => setView('shop')} className={`flex min-w-16 flex-col items-center gap-1 py-1 text-[10px] font-semibold ${view === 'shop' ? 'text-[#376b59]' : 'text-[#839087]'}`}><Store size={19} />Shop</button><button type="button" onClick={() => { setView('cart'); setSelectedId(null) }} className={`flex min-w-16 flex-col items-center gap-1 py-1 text-[10px] font-semibold ${view === 'cart' ? 'text-[#376b59]' : 'text-[#839087]'}`}><span className="relative"><ShoppingCart size={19} />{userCart.items.length > 0 && <span className="absolute -right-2 -top-1 grid min-h-3.5 min-w-3.5 place-items-center rounded-full bg-[#d94b3d] px-0.5 text-[8px] font-bold text-white">{userCart.items.reduce((sum, item) => sum + item.quantity, 0)}</span>}</span>Cart</button><button type="button" onClick={() => { setView('dashboard'); setSelectedId(null) }} className={`flex min-w-16 flex-col items-center gap-1 py-1 text-[10px] font-semibold ${view === 'dashboard' ? 'text-[#376b59]' : 'text-[#839087]'}`}><LayoutDashboard size={19} />Studio</button></nav>

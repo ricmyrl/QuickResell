@@ -29,7 +29,7 @@ export function useAuctionFeedRealtime({ onRoomUpdate, onBid }: FeedHandlers) {
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'Bid' }, ({ new: row }) => {
         const bid = row as { id: string; auctionRoomId: string; bidderId: string; amount: number; createdAt: string }
         if (handlersRef.current) {
-          handlersRef.current.onBid(bid.auctionRoomId, { id: bid.id, amount: bid.amount, createdAt: bid.createdAt, bidder: { id: bid.bidderId, displayName: 'Campus bidder' } })
+          handlersRef.current.onBid(bid.auctionRoomId, { id: bid.id, amount: bid.amount, createdAt: bid.createdAt, bidder: { id: bid.bidderId, displayName: 'Bidder' } })
         }
       })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'AuctionRoom' }, ({ new: row }) => {
