@@ -6,7 +6,7 @@ import { Button } from '../common/Button'
 
 type AuthMode = 'signin' | 'register'
 
-export function AuthPage({ initialMode = 'signin', onBack, onAuthenticated }: { initialMode?: AuthMode; onBack: () => void; onAuthenticated: () => void }) {
+export function AuthPage({ initialMode = 'signin', returnTo = '/', onBack, onAuthenticated }: { initialMode?: AuthMode; returnTo?: string; onBack: () => void; onAuthenticated: () => void }) {
   const [mode, setMode] = useState<AuthMode>(initialMode)
   const [fullName, setFullName] = useState('')
   const [email, setEmail] = useState('')
@@ -92,6 +92,9 @@ export function AuthPage({ initialMode = 'signin', onBack, onAuthenticated }: { 
       return
     }
     setError('')
+    if (returnTo.startsWith('/') && !returnTo.startsWith('//')) {
+      window.sessionStorage.setItem('quickresell:auth:return-to', returnTo)
+    }
     const { error: oauthError } = await supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: window.location.origin } })
     if (oauthError) setError(oauthError.message)
   }

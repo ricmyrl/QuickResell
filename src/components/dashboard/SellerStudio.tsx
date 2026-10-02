@@ -1,10 +1,11 @@
 import { useMemo, useState } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import type { ReactNode } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { Activity, ArrowDownRight, ArrowRight, BadgeCheck, Boxes, Check, ChevronRight, CircleDollarSign, Clock3, ImagePlus, LayoutGrid, ListFilter, Package, Search, ShieldCheck, ShieldHalf, ShieldAlert, Sparkles, Store } from 'lucide-react'
 import type { Auction, MarketplaceListing, Verdict } from '../../types'
 import { Button } from '../common/Button'
-import { CreateListingModal } from './CreateListingModal'
+import { CreateListingPage } from './CreateListingModal'
 import { SellerVerdictModal } from './SellerVerdictModal'
 
 type StudioSection = 'overview' | 'inventory' | 'auctions'
@@ -30,10 +31,11 @@ const sections: Array<{ id: StudioSection; label: string; icon: typeof LayoutGri
 ]
 
 function SellerStudio({ auctions, userId, trustScore, completedAuctions, session, emailConfirmed, ownListings, onRequestSignIn, onListingCreated, onVerdict, onNotice }: StudioProps) {
+  const location = useLocation()
+  const navigate = useNavigate()
   const [section, setSection] = useState<StudioSection>('overview')
   const [query, setQuery] = useState('')
   const [selectedAuction, setSelectedAuction] = useState<Auction | null>(null)
-  const [createListingOpen, setCreateListingOpen] = useState(false)
 
   const pending = auctions.filter((auction) => auction.status === 'PENDING_APPROVAL' && (!userId || auction.sellerId === userId))
   const active = auctions.filter((auction) => auction.status === 'ACTIVE' && (!userId || auction.sellerId === userId))
@@ -58,7 +60,7 @@ function SellerStudio({ auctions, userId, trustScore, completedAuctions, session
       onNotice('Confirm your email before adding products.', 'error')
       return
     }
-    setCreateListingOpen(true)
+    navigate('/seller/products/new', { state: { returnTo: location.pathname } })
   }
 
   const reviewVerdict = async (decision: Verdict) => {
@@ -66,6 +68,10 @@ function SellerStudio({ auctions, userId, trustScore, completedAuctions, session
     await onVerdict(selectedAuction, decision)
     onNotice(decision === 'ACCEPT' ? 'Sale confirmed. Your seller trust improved.' : 'Bid rejected. The listing is frozen and your trust score changed.')
     setSelectedAuction(null)
+  }
+
+  if (location.pathname === '/seller/products/new') {
+    return <CreateListingPage onClose={() => navigate('/seller')} session={session} onCreated={onListingCreated} />
   }
 
   return <section className="min-w-0 pb-2 enter-up">
@@ -134,7 +140,6 @@ function SellerStudio({ auctions, userId, trustScore, completedAuctions, session
     </div>}
 
     <div className="mt-5 flex items-start gap-2 border-t border-[#e4eae4] pt-4 text-[11px] leading-5 text-[#869188]"><ShieldAlert size={14} className="mt-0.5 shrink-0" />Rejecting a winning bid affects your trust score and freezes the listing. Only reject when you cannot complete the sale.</div>
-    <CreateListingModal open={createListingOpen} onClose={() => setCreateListingOpen(false)} session={session} onCreated={onListingCreated} />
     <SellerVerdictModal auction={selectedAuction} open={Boolean(selectedAuction)} onClose={() => setSelectedAuction(null)} onSubmit={reviewVerdict} />
   </section>
 }

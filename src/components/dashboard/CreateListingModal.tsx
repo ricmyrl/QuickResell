@@ -1,16 +1,14 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import type { Session } from '@supabase/supabase-js'
-import { ImagePlus, LoaderCircle, X } from 'lucide-react'
+import { ArrowLeft, ImagePlus, LoaderCircle, X } from 'lucide-react'
 import type { MarketplaceListing } from '../../types'
 import { createListing, getListingCategories, type ListingCategory } from '../../services/listingApi'
 import { Button, IconButton } from '../common/Button'
-import { Modal } from '../common/Modal'
 
 const maxImages = 8
 type SelectedImage = { file: File; previewUrl: string }
 
-export function CreateListingModal({ open, onClose, session, onCreated }: {
-  open: boolean
+export function CreateListingPage({ onClose, session, onCreated }: {
   onClose: () => void
   session: Session | null
   onCreated: (listing: MarketplaceListing) => void
@@ -35,7 +33,7 @@ export function CreateListingModal({ open, onClose, session, onCreated }: {
   }, [])
 
   useEffect(() => {
-    if (!open || !session) return
+    if (!session) return
     let cancelled = false
     void getListingCategories(session).then((items) => {
       if (!cancelled) {
@@ -50,7 +48,7 @@ export function CreateListingModal({ open, onClose, session, onCreated }: {
       }
     })
     return () => { cancelled = true }
-  }, [open, session])
+  }, [session])
 
   const reset = () => {
     setTitle('')
@@ -101,8 +99,16 @@ export function CreateListingModal({ open, onClose, session, onCreated }: {
     }
   }
 
-  return <Modal open={open} onClose={() => { if (!busy) onClose() }} title="Add a product">
-    <form onSubmit={(event) => void submit(event)} className="max-h-[min(72vh,680px)] space-y-4 overflow-y-auto pr-1">
+  return <section className="mx-auto w-full max-w-3xl pb-8">
+    <button type="button" onClick={() => { if (!busy) onClose() }} className="mb-5 inline-flex min-h-9 items-center gap-2 text-sm font-semibold text-[#66766e] transition hover:text-[#263b33]">
+      <ArrowLeft size={16} />Back to seller studio
+    </button>
+    <header className="mb-6">
+      <p className="mb-2 text-xs font-bold uppercase tracking-[.13em] text-[#698572]">Seller workspace</p>
+      <h1 className="font-display text-3xl font-semibold text-[#1c2b26]">Add a product</h1>
+      <p className="mt-2 text-sm text-[#7a8781]">Add the details and photos buyers need to find your item.</p>
+    </header>
+    <form onSubmit={(event) => void submit(event)} className="space-y-4">
       <label className="block"><span className="mb-1.5 block text-xs font-semibold text-[#43564b]">Product name</span><input required maxLength={120} value={title} onChange={(event) => setTitle(event.target.value)} placeholder="e.g. Desk lamp" className="h-11 w-full rounded-xl border border-[#dfe7e1] px-3 text-sm outline-none focus:border-[#86a995] focus:ring-4 focus:ring-[#e7f0e9]" /></label>
       <label className="block"><span className="mb-1.5 block text-xs font-semibold text-[#43564b]">Description</span><textarea maxLength={4000} rows={3} value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Condition, details, and pickup notes" className="w-full resize-y rounded-xl border border-[#dfe7e1] px-3 py-2.5 text-sm outline-none focus:border-[#86a995] focus:ring-4 focus:ring-[#e7f0e9]" /></label>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -120,5 +126,5 @@ export function CreateListingModal({ open, onClose, session, onCreated }: {
       {error && <p role="alert" className="rounded-lg border border-[#f1d8d3] bg-[#fff5f2] px-3 py-2.5 text-xs leading-5 text-[#a34237]">{error}</p>}
       <div className="flex justify-end gap-2 border-t border-[#edf0ed] pt-4"><Button type="button" variant="secondary" disabled={busy} onClick={onClose}>Cancel</Button><Button type="submit" disabled={busy || !categoriesLoaded || categories.length === 0} icon={busy ? <LoaderCircle size={16} className="animate-spin" /> : <ImagePlus size={16} />}>{busy ? 'Publishing…' : 'Publish product'}</Button></div>
     </form>
-  </Modal>
+  </section>
 }

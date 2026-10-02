@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { Bell, Bookmark, Compass, GraduationCap, ImagePlus, LayoutDashboard, Search, ShieldCheck, ShoppingBag, ShoppingCart, Sparkles, Store, X } from 'lucide-react'
 import type { Session } from '@supabase/supabase-js'
 import { AuctionRoom } from './components/auction/AuctionRoom'
@@ -25,7 +26,38 @@ type View = 'feed' | 'shop' | 'cart' | 'dashboard' | 'watchlist'
 type AuthMode = 'signin' | 'register'
 type ToastMessage = { message: string; kind: 'success' | 'error' }
 
+const viewPaths: Record<View, string> = {
+  feed: '/',
+  shop: '/shop',
+  cart: '/cart',
+  dashboard: '/seller',
+  watchlist: '/watchlist',
+}
+
+function viewForPath(pathname: string): View {
+  if (pathname === '/shop') return 'shop'
+  if (pathname === '/cart') return 'cart'
+  if (pathname === '/watchlist') return 'watchlist'
+  if (pathname === '/seller' || pathname.startsWith('/seller/')) return 'dashboard'
+  return 'feed'
+}
+
+function returnPath(state: unknown): string {
+  if (typeof state !== 'object' || state === null || !('returnTo' in state)) return '/'
+  const target = state.returnTo
+  return typeof target === 'string' && target.startsWith('/') && !target.startsWith('//') ? target : '/'
+}
+
+function isKnownPath(pathname: string): boolean {
+  return ['/', '/shop', '/cart', '/seller', '/seller/products/new', '/watchlist', '/auth/sign-in', '/auth/register'].includes(pathname) || /^\/auctions\/[^/]+$/.test(pathname)
+}
+
 export default function MarketplaceApp() {
+  const location = useLocation()
+  const navigate = useNavigate()
+  const view = viewForPath(location.pathname)
+  const selectedId = location.pathname.match(/^\/auctions\/([^/]+)$/)?.[1] ?? null
+  const authMode: AuthMode | null = location.pathname === '/auth/register' ? 'register' : location.pathname === '/auth/sign-in' ? 'signin' : null
   const [auctions, setAuctions] = useState<Auction[]>([])
   const [listings, setListings] = useState<MarketplaceListing[]>([])
   const [sellerAuctions, setSellerAuctions] = useState<Auction[]>([])
@@ -37,11 +69,9 @@ export default function MarketplaceApp() {
   const [watchlistError, setWatchlistError] = useState('')
   const [watchlistSavingId, setWatchlistSavingId] = useState<string | null>(null)
   const [preparedWatchlistDraft, setPreparedWatchlistDraft] = useState<{ auctionRoomId: string; maxBid: number; bidStep: number } | null>(null)
-  const [view, setViewState] = useState<View>('feed')
-  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const pendingAuctionNavigation = useRef(false)
+  const nextViewNavigation = useRef<View | null>(null)
   const [session, setSession] = useState<Session | null>(null)
-  const [authMode, setAuthMode] = useState<AuthMode | null>(null)
-  const [sellerEntryPending, setSellerEntryPending] = useState(false)
   const [toast, setToast] = useState<ToastMessage | null>(null)
   const [search, setSearch] = useState('')
   const [searchOpen, setSearchOpen] = useState(false)
@@ -54,7 +84,6 @@ export default function MarketplaceApp() {
   const [dataRetry, setDataRetry] = useState(0)
   const [notifications, setNotifications] = useState<NotificationItem[]>([])
   const [notificationsOpen, setNotificationsOpen] = useState(false)
-  const [viewAfterLogin, setViewAfterLogin] = useState<View | null>(null)
   const emailConfirmed = Boolean(session?.user.email_confirmed_at)
   const currentUserId = session?.user.id ?? ''
   const userCart = useShoppingCart(currentUserId, Boolean(session))
@@ -62,14 +91,56 @@ export default function MarketplaceApp() {
   const dataKey = session ? `${session.user.id}:${emailConfirmed}` : 'public'
   const dataLoading = authLoading || loadedUserId !== dataKey
 
+  const setAuthMode = (mode: AuthMode | null, nextPath?: string) => {
+    if (mode) {
+      navigate(mode === 'signin' ? '/auth/sign-in' : '/auth/register', {
+        state: { returnTo: nextPath ?? location.pathname },
+      })
+      return
+    }
+    navigate(returnPath(location.state), { replace: true })
+  }
+
+  const setViewState = (nextView: View) => {
+    if (nextView === 'feed' && pendingAuctionNavigation.current) {
+      pendingAuctionNavigation.current = false
+      return
+    }
+    pendingAuctionNavigation.current = false
+    nextViewNavigation.current = nextView
+    navigate(viewPaths[nextView])
+  }
+  const setSelectedId = (id: string | null) => {
+    if (!id) {
+      pendingAuctionNavigation.current = false
+      if (location.pathname.startsWith('/auctions/')) {
+        const nextView = nextViewNavigation.current
+        nextViewNavigation.current = null
+        navigate(nextView ? viewPaths[nextView] : returnPath(location.state), { replace: true })
+      }
+      return
+    }
+    pendingAuctionNavigation.current = true
+    const returnTo = location.pathname.startsWith('/auctions/') ? returnPath(location.state) : location.pathname
+    navigate(`/auctions/${encodeURIComponent(id)}`, { state: { returnTo } })
+  }
+
   const setView = (nextView: View) => {
     if (nextView === 'cart' && !session) {
-      setViewAfterLogin('cart')
-      setAuthMode('signin')
+      setAuthMode('signin', viewPaths.cart)
       return
     }
     setViewState(nextView)
   }
+
+  useEffect(() => {
+    if (!isKnownPath(location.pathname)) navigate('/', { replace: true })
+  }, [location.pathname, navigate])
+
+  useEffect(() => {
+    if (authLoading || session || (view !== 'cart' && view !== 'dashboard')) return
+    setAuthMode('signin', location.pathname)
+  }, [authLoading, location.pathname, session, view])
 
   useEffect(() => {
     if (!supabase) {
@@ -81,7 +152,6 @@ export default function MarketplaceApp() {
     }).catch(() => setAuthLoading(false))
     const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
       setSession(nextSession)
-      if (nextSession?.user.email_confirmed_at) setAuthMode(null)
       if (!nextSession) {
         setAuctions([])
         setListings([])
@@ -97,6 +167,14 @@ export default function MarketplaceApp() {
     })
     return () => listener.subscription.unsubscribe()
   }, [])
+
+  useEffect(() => {
+    if (authLoading || !session) return
+    const requestedPath = window.sessionStorage.getItem('quickresell:auth:return-to')
+    if (!requestedPath) return
+    window.sessionStorage.removeItem('quickresell:auth:return-to')
+    if (requestedPath.startsWith('/') && !requestedPath.startsWith('//')) navigate(requestedPath, { replace: true })
+  }, [authLoading, navigate, session])
 
   useEffect(() => {
     if (authLoading) return
@@ -435,8 +513,7 @@ export default function MarketplaceApp() {
 
   const openSellerStudio = () => {
     if (!session) {
-      setSellerEntryPending(true)
-      setAuthMode('signin')
+      setAuthMode('signin', viewPaths.dashboard)
       return
     }
     setSelectedId(null)
@@ -505,7 +582,7 @@ export default function MarketplaceApp() {
     <button type="button" onClick={() => { setView('dashboard'); setSelectedId(null) }} className={`mt-1 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition-colors ${view === 'dashboard' ? 'bg-[#edf4ed] text-[#2d5d4c]' : 'text-[#78867e] hover:bg-[#f1f4f1] hover:text-[#263b33]'}`}><LayoutDashboard size={17} />Seller studio{sellerRows.some((item) => item.status === 'PENDING_APPROVAL') && <span className="ml-auto size-2 rounded-full bg-[#df704a]" />}</button>
   </>
 
-  return authMode ? <AuthPage initialMode={authMode} onBack={() => { setAuthMode(null); setSellerEntryPending(false); setViewAfterLogin(null) }} onAuthenticated={() => { setAuthMode(null); showToast('You’re signed in. Welcome to Quick Resell.'); if (sellerEntryPending) { setViewState('dashboard'); setSellerEntryPending(false) } if (viewAfterLogin) { setViewState(viewAfterLogin); setViewAfterLogin(null) } }} /> : <div className="min-h-screen bg-[#f5f7f5] text-[#192724]">
+  return authMode ? <AuthPage initialMode={authMode} returnTo={returnPath(location.state)} onBack={() => setAuthMode(null)} onAuthenticated={() => { setAuthMode(null); showToast('You’re signed in. Welcome to Quick Resell.') }} /> : <div className="min-h-screen bg-[#f5f7f5] text-[#192724]">
     <header className="sticky top-0 z-30 flex h-[68px] items-center gap-3 border-b border-[#e6ebe7] bg-white/95 px-3 backdrop-blur-md sm:gap-4 sm:px-6 lg:px-8">
       <button type="button" onClick={() => { setView('feed'); setSelectedId(null) }} className="flex shrink-0 items-center gap-2.5"><span className="grid size-9 place-items-center rounded-xl bg-[#d4f06b] text-[#243a33]"><ShoppingBag size={19} strokeWidth={2.5} /></span><span className="font-display text-[17px] font-bold tracking-[-.03em]">quick<span className="text-[#70917c]">resell</span></span></button>
       <div className={`relative mx-auto w-full max-w-[540px] ${searchOpen ? 'block' : 'hidden'} md:block`}><Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#96a19b]" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search finds around campus" className="h-10 w-full rounded-xl border border-[#e7ece8] bg-[#f7f9f7] pl-10 pr-4 text-sm outline-none transition focus:border-[#9ab4a2] focus:bg-white" />{search && <div className="absolute left-0 right-0 top-12 z-40 overflow-hidden rounded-xl border border-[#e6ebe7] bg-white shadow-lg">{searchResults.map((auction) => <button key={auction.id} type="button" onClick={() => { setSelectedId(auction.id); setSearch(''); setSearchOpen(false) }} className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-[#f5f8f5]"><img src={auction.image} alt="" className="size-10 rounded-lg object-cover" /><span className="min-w-0 flex-1 truncate text-sm font-semibold">{auction.title}</span><span className="text-xs text-[#74847a]">${auction.currentHighestBid}</span></button>)}{!searchResults.length && <p className="p-4 text-sm text-[#849189]">No matching live listings.</p>}</div>}</div>
