@@ -307,24 +307,26 @@ export default function MarketplaceApp() {
             { display_name: 'QuickResell buyer', variable_name: 'buyer_id', value: session.user.id },
           ],
         },
-        callback: async (response: { reference?: string }) => {
-          try {
-            const reference = response.reference ?? payment.reference
-            const verification = await verifyPayment(reference, session)
-            if (!verification.verified) {
-              throw new Error('Payment verification failed.')
+        callback: (response: { reference?: string }) => {
+          void (async () => {
+            try {
+              const reference = response.reference ?? payment.reference
+              const verification = await verifyPayment(reference, session)
+              if (!verification.verified) {
+                throw new Error('Payment verification failed.')
+              }
+              const nextOrder = await userCart.checkout(reference)
+              setListings((current) => current.map((listing) => {
+                const purchased = nextOrder.items.find((item) => item.postId === listing.id)
+                if (!purchased) return listing
+                const quantityAvailable = Math.max(0, listing.quantityAvailable - purchased.quantity)
+                return { ...listing, quantityAvailable }
+              }).filter((listing) => listing.quantityAvailable > 0))
+              resolve(nextOrder)
+            } catch (caught) {
+              reject(caught instanceof Error ? caught : new Error('Payment verification failed.'))
             }
-            const nextOrder = await userCart.checkout(reference)
-            setListings((current) => current.map((listing) => {
-              const purchased = nextOrder.items.find((item) => item.postId === listing.id)
-              if (!purchased) return listing
-              const quantityAvailable = Math.max(0, listing.quantityAvailable - purchased.quantity)
-              return { ...listing, quantityAvailable }
-            }).filter((listing) => listing.quantityAvailable > 0))
-            resolve(nextOrder)
-          } catch (caught) {
-            reject(caught instanceof Error ? caught : new Error('Payment verification failed.'))
-          }
+          })()
         },
         onClose: () => {
           reject(new Error('Payment cancelled. Your cart remains unchanged.'))
