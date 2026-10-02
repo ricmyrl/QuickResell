@@ -46,9 +46,9 @@ export function useShoppingCart(userId: string, authenticated: boolean) {
     setServerCart((current) => ({ userId, items: (current.userId === userId ? current.items : []).filter((line) => line.postId !== postId) }))
   }
 
-  const checkout = async (): Promise<PurchaseOrder> => {
+  const checkout = async (paymentReference?: string): Promise<PurchaseOrder> => {
     if (!authenticated) throw new Error('Sign in before checking out.')
-    const order = await placeCartOrder()
+    const order = await placeCartOrder(paymentReference)
     setServerCart({ userId, items: [] })
     return order
   }

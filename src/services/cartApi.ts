@@ -2,7 +2,15 @@ import type { Session } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabase'
 import type { MarketplaceListing, PurchaseOrder, ShoppingCartItem } from '../types'
 
-const apiBaseUrl = (import.meta.env.VITE_API_URL ?? 'http://localhost:3000/api').replace(/\/$/, '')
+const pageHostApiUrl = typeof window !== 'undefined' && window.location.protocol === 'http:'
+  ? `http://${window.location.hostname}:3000/api`
+  : ''
+const apiBaseCandidates = Array.from(new Set([
+  (import.meta.env.VITE_API_URL ?? 'http://localhost:3000/api').replace(/\/$/, ''),
+  pageHostApiUrl,
+  'http://localhost:3000/api',
+  'http://127.0.0.1:3000/api',
+])).filter(Boolean)
 
 export class CartApiError extends Error {
   readonly status: number
@@ -34,14 +42,33 @@ function normalizeItem(item: ApiCartItem): ShoppingCartItem {
 }
 
 async function request<T>(path: string, init: RequestInit = {}, session?: Session | null): Promise<T> {
-  const activeSession = session ?? (await supabase?.auth.getSession())?.data.session
-  const headers = new Headers(init.headers)
-  headers.set('Content-Type', 'application/json')
-  if (activeSession?.access_token) headers.set('Authorization', `Bearer ${activeSession.access_token}`)
-  const response = await fetch(`${apiBaseUrl}${path}`, { ...init, headers })
-  const payload = await response.json().catch(() => ({})) as { error?: string }
-  if (!response.ok) throw new CartApiError(payload.error ?? `Request failed (${response.status}).`, response.status)
-  return payload as T
+  let lastError: unknown
+  for (const baseUrl of apiBaseCandidates) {
+    try {
+      const activeSession = session ?? (await supabase?.auth.getSession())?.data.session
+      const headers = new Headers(init.headers)
+      headers.set('Content-Type', 'application/json')
+      if (activeSession?.access_token) headers.set('Authorization', `Bearer ${activeSession.access_token}`)
+      const response = await fetch(`${baseUrl}${path}`, { ...init, headers })
+      const payload = await response.json().catch(() => ({})) as { error?: string }
+      if (!response.ok) {
+        if (response.status >= 500) {
+          lastError = new CartApiError(payload.error ?? `Request failed (${response.status}).`, response.status)
+          continue
+        }
+        throw new CartApiError(payload.error ?? `Request failed (${response.status}).`, response.status)
+      }
+      return payload as T
+    } catch (error) {
+      lastError = error
+      if (error instanceof CartApiError && error.status < 500) {
+        throw error
+      }
+    }
+  }
+
+  if (lastError instanceof Error) throw lastError
+  throw new Error(`Request failed for ${path}.`)
 }
 
 export async function getStoreListings(session?: Session | null): Promise<MarketplaceListing[]> {
@@ -68,7 +95,21 @@ export async function removeCartItem(postId: string, session?: Session | null): 
   await request<void>(`/cart/items/${encodeURIComponent(postId)}`, { method: 'DELETE' }, session)
 }
 
-export async function placeCartOrder(session?: Session | null): Promise<PurchaseOrder> {
-  const result = await request<{ order: PurchaseOrder }>('/cart/checkout', { method: 'POST' }, session)
+export async function initializePayment(amount: number, session?: Session | null): Promise<{ status: string; authorization_url: string; access_code: string; reference: string }> {
+  return request<{ status: string; authorization_url: string; access_code: string; reference: string }>('/payments/initialize', {
+    method: 'POST',
+    body: JSON.stringify({ amount, metadata: { source: 'quickresell' } }),
+  }, session)
+}
+
+export async function verifyPayment(reference: string, session?: Session | null): Promise<{ verified: boolean; status: string; reference: string; amount: number; currency: string; metadata?: Record<string, unknown> }> {
+  return request<{ verified: boolean; status: string; reference: string; amount: number; currency: string; metadata?: Record<string, unknown> }>(`/payments/verify/${encodeURIComponent(reference)}`, { method: 'GET' }, session)
+}
+
+export async function placeCartOrder(paymentReference?: string, session?: Session | null): Promise<PurchaseOrder> {
+  const result = await request<{ order: PurchaseOrder }>('/cart/checkout', {
+    method: 'POST',
+    body: JSON.stringify(paymentReference ? { paymentReference } : {}),
+  }, session)
   return result.order
 }

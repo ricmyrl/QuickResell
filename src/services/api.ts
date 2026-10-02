@@ -1,8 +1,16 @@
 import type { Session } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabase'
-import type { Auction, Bid, Verdict } from '../types'
+import type { Auction, AuctionWatchlistRule, Bid, NotificationItem, Verdict } from '../types'
 
-const apiBaseUrl = (import.meta.env.VITE_API_URL ?? 'http://localhost:3000/api').replace(/\/$/, '')
+const pageHostApiUrl = typeof window !== 'undefined' && window.location.protocol === 'http:'
+  ? `http://${window.location.hostname}:3000/api`
+  : ''
+const apiBaseCandidates = Array.from(new Set([
+  (import.meta.env.VITE_API_URL ?? 'http://localhost:3000/api').replace(/\/$/, ''),
+  pageHostApiUrl,
+  'http://localhost:3000/api',
+  'http://127.0.0.1:3000/api',
+])).filter(Boolean)
 type ApiBid = { id: string; amount: number; createdAt: string; bidder?: { id: string; displayName?: string | null; avatarUrl?: string | null } }
 type ApiAuctionRoom = {
   id: string; postId: string; sellerId: string; currentHighestBid: number; highestBidderId: string | null
@@ -10,6 +18,15 @@ type ApiAuctionRoom = {
   post?: { id: string; title: string; description?: string | null; price: number; locationCampus?: string | null; category?: { name: string }; images?: { url: string }[] }
   seller?: { id: string; displayName?: string | null; avatarUrl?: string | null; trustScore?: number; completedAuctions?: number }
   bids?: ApiBid[]
+}
+type ApiAuctionWatchlistRule = {
+  id: string
+  auctionRoomId: string
+  maxBid: number
+  bidStep: number
+  autoBidEnabled: boolean
+  updatedAt: string
+  auctionRoom: ApiAuctionRoom | null
 }
 
 export class ApiError extends Error {
@@ -32,19 +49,79 @@ function normalizeRoom(room: ApiAuctionRoom): Auction {
 }
 
 async function request<T>(path: string, init: RequestInit = {}, session?: Session | null): Promise<T> {
-  const activeSession = session ?? (await supabase?.auth.getSession())?.data.session
-  const headers = new Headers(init.headers)
-  headers.set('Content-Type', 'application/json')
-  if (activeSession?.access_token) headers.set('Authorization', `Bearer ${activeSession.access_token}`)
-  const response = await fetch(`${apiBaseUrl}${path}`, { ...init, headers })
-  const payload = await response.json().catch(() => ({})) as { error?: string }
-  if (!response.ok) throw new ApiError(payload.error ?? `Request failed (${response.status}).`, response.status)
-  return payload as T
+  let lastError: unknown
+  for (const baseUrl of apiBaseCandidates) {
+    try {
+      const activeSession = session ?? (await supabase?.auth.getSession())?.data.session
+      const headers = new Headers(init.headers)
+      headers.set('Content-Type', 'application/json')
+      if (activeSession?.access_token) headers.set('Authorization', `Bearer ${activeSession.access_token}`)
+      const response = await fetch(`${baseUrl}${path}`, { ...init, headers })
+      const payload = await response.json().catch(() => ({})) as { error?: string }
+      if (!response.ok) {
+        if (response.status >= 500) {
+          lastError = new ApiError(payload.error ?? `Request failed (${response.status}).`, response.status)
+          continue
+        }
+        throw new ApiError(payload.error ?? `Request failed (${response.status}).`, response.status)
+      }
+      return payload as T
+    } catch (error) {
+      lastError = error
+      if (error instanceof ApiError && error.status < 500) {
+        throw error
+      }
+    }
+  }
+
+  if (lastError instanceof Error) throw lastError
+  throw new Error(`Request failed for ${path}.`)
 }
 
 export async function getPublicAuctions(session?: Session | null): Promise<Auction[]> {
   const result = await request<{ auctionRooms: ApiAuctionRoom[] }>('/auctions?limit=50', {}, session)
   return result.auctionRooms.map(normalizeRoom)
+}
+
+export async function getAuctionWatchlist(session?: Session | null): Promise<AuctionWatchlistRule[]> {
+  const result = await request<{ items: ApiAuctionWatchlistRule[] }>('/watchlist/auctions', {}, session)
+  return result.items.flatMap((item) => item.auctionRoom ? [{
+    id: item.id,
+    auctionRoomId: item.auctionRoomId,
+    maxBid: item.maxBid,
+    bidStep: item.bidStep,
+    autoBidEnabled: item.autoBidEnabled,
+    updatedAt: item.updatedAt,
+    auction: normalizeRoom(item.auctionRoom),
+  }] : [])
+}
+
+export async function saveAuctionWatchlistRule(
+  auctionRoomId: string,
+  rule: Pick<AuctionWatchlistRule, 'maxBid' | 'bidStep' | 'autoBidEnabled'> & { authorizationConfirmed: boolean },
+  session?: Session | null,
+): Promise<{ rule: AuctionWatchlistRule; autoBidPlaced: boolean }> {
+  const result = await request<{ item: ApiAuctionWatchlistRule; autoBidPlaced: boolean }>(`/watchlist/auctions/${encodeURIComponent(auctionRoomId)}`, {
+    method: 'PUT',
+    body: JSON.stringify(rule),
+  }, session)
+  if (!result.item.auctionRoom) throw new Error('This auction is no longer available.')
+  return {
+    rule: {
+      id: result.item.id,
+      auctionRoomId: result.item.auctionRoomId,
+      maxBid: result.item.maxBid,
+      bidStep: result.item.bidStep,
+      autoBidEnabled: result.item.autoBidEnabled,
+      updatedAt: result.item.updatedAt,
+      auction: normalizeRoom(result.item.auctionRoom),
+    },
+    autoBidPlaced: result.autoBidPlaced,
+  }
+}
+
+export async function removeAuctionWatchlistRule(auctionRoomId: string, session?: Session | null): Promise<void> {
+  await request<{ removed: number }>(`/watchlist/auctions/${encodeURIComponent(auctionRoomId)}`, { method: 'DELETE' }, session)
 }
 
 export async function getSellerAuctions(session?: Session | null): Promise<{ auctions: Auction[]; trustScore: number; completedAuctions: number }> {
@@ -76,4 +153,19 @@ export async function closeAuction(roomId: string, session?: Session | null): Pr
 export async function submitVerdict(roomId: string, decision: Verdict, session?: Session | null): Promise<{ auction: Auction; trustScore: number }> {
   const result = await request<{ auctionRoom: ApiAuctionRoom; trustScore: number }>(`/auctions/${encodeURIComponent(roomId)}/verdict`, { method: 'POST', body: JSON.stringify({ decision }) }, session)
   return { auction: normalizeRoom(result.auctionRoom), trustScore: result.trustScore }
+}
+
+export async function getNotifications(session?: Session | null): Promise<NotificationItem[]> {
+  const result = await request<{ notifications: NotificationItem[] }>('/notifications', {}, session)
+  return result.notifications
+}
+
+export async function markNotificationRead(id: string, session?: Session | null): Promise<NotificationItem> {
+  const result = await request<{ notification: NotificationItem }>(`/notifications/${encodeURIComponent(id)}/read`, { method: 'POST' }, session)
+  return result.notification
+}
+
+export async function markAllNotificationsRead(session?: Session | null): Promise<number> {
+  const result = await request<{ updated: number }>('/notifications/read-all', { method: 'POST' }, session)
+  return result.updated
 }

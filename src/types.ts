@@ -28,6 +28,16 @@ export type Auction = {
   noReserve?: boolean
 }
 
+export type AuctionWatchlistRule = {
+  id: string
+  auctionRoomId: string
+  maxBid: number
+  bidStep: number
+  autoBidEnabled: boolean
+  updatedAt: string
+  auction: Auction
+}
+
 export type Verdict = 'ACCEPT' | 'REJECT'
 
 export type MarketplaceListing = {
@@ -40,7 +50,7 @@ export type MarketplaceListing = {
   category: string
   location: string
   image: string
-  seller: { id: string; displayName: string; avatarUrl?: string | null; trustScore: number }
+  seller: { id: string; displayName: string; avatarUrl?: string | null; trustScore: number; isCampusVerified?: boolean }
 }
 
 export type ShoppingCartItem = {
@@ -58,4 +68,16 @@ export type PurchaseOrder = {
   subtotalCents: number
   createdAt: string
   items: Array<{ id: string; postId: string; sellerId: string; title: string; quantity: number; unitPriceCents: number }>
+}
+
+export type NotificationItem = {
+  id: string
+  userId: string
+  type: 'BID_PLACED' | 'OUTBID' | 'AUCTION_WON' | 'AUCTION_CLOSED' | 'PRICE_UPDATED' | 'LISTING_SOLD' | 'REVIEW' | 'REPLY' | 'ORDER_UPDATE'
+  title: string
+  message: string
+  entityType?: string | null
+  entityId?: string | null
+  isRead: boolean
+  createdAt: string
 }

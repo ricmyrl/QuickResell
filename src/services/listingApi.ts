@@ -2,7 +2,15 @@ import type { Session } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabase'
 import type { MarketplaceListing } from '../types'
 
-const apiBaseUrl = (import.meta.env.VITE_API_URL ?? 'http://localhost:3000/api').replace(/\/$/, '')
+const pageHostApiUrl = typeof window !== 'undefined' && window.location.protocol === 'http:'
+  ? `http://${window.location.hostname}:3000/api`
+  : ''
+const apiBaseCandidates = Array.from(new Set([
+  (import.meta.env.VITE_API_URL ?? 'http://localhost:3000/api').replace(/\/$/, ''),
+  pageHostApiUrl,
+  'http://localhost:3000/api',
+  'http://127.0.0.1:3000/api',
+])).filter(Boolean)
 const storageBucket = 'listing-images'
 const maxImages = 8
 const maxImageSize = 10 * 1024 * 1024
@@ -29,7 +37,7 @@ type ApiListing = {
   locationCampus?: string | null
   category?: { name: string }
   images?: Array<{ url: string }>
-  user?: { id: string; displayName?: string | null; avatarUrl?: string | null; trustScore?: number }
+  user?: { id: string; displayName?: string | null; avatarUrl?: string | null; trustScore?: number; isCampusVerified?: boolean }
 }
 
 function normalizeListing(listing: ApiListing): MarketplaceListing {
@@ -48,21 +56,41 @@ function normalizeListing(listing: ApiListing): MarketplaceListing {
       displayName: listing.user?.displayName ?? 'Campus seller',
       avatarUrl: listing.user?.avatarUrl,
       trustScore: listing.user?.trustScore ?? 50,
+      isCampusVerified: listing.user?.isCampusVerified ?? false,
     },
   }
 }
 
-async function apiRequest<T>(path: string, session: Session, init: RequestInit = {}): Promise<T> {
-  const headers = new Headers(init.headers)
-  headers.set('Authorization', `Bearer ${session.access_token}`)
-  if (init.body) headers.set('Content-Type', 'application/json')
-  const response = await fetch(`${apiBaseUrl}${path}`, { ...init, headers })
-  const payload = await response.json().catch(() => ({})) as { error?: string }
-  if (!response.ok) throw new Error(payload.error ?? `Request failed (${response.status}).`)
-  return payload as T
+async function apiRequest<T>(path: string, session?: Session | null, init: RequestInit = {}): Promise<T> {
+  let lastError: unknown
+  for (const baseUrl of apiBaseCandidates) {
+    try {
+      const headers = new Headers(init.headers)
+      if (session?.access_token) headers.set('Authorization', `Bearer ${session.access_token}`)
+      if (init.body) headers.set('Content-Type', 'application/json')
+      const response = await fetch(`${baseUrl}${path}`, { ...init, headers })
+      const payload = await response.json().catch(() => ({})) as { error?: string }
+      if (!response.ok) {
+        if (response.status >= 500) {
+          lastError = new Error(payload.error ?? `Request failed (${response.status}).`)
+          continue
+        }
+        throw new Error(payload.error ?? `Request failed (${response.status}).`)
+      }
+      return payload as T
+    } catch (error) {
+      lastError = error
+      if (error instanceof Error && !/Request failed \(\d+\)/.test(error.message)) {
+        continue
+      }
+    }
+  }
+
+  if (lastError instanceof Error) throw lastError
+  throw new Error(`Request failed for ${path}.`)
 }
 
-export async function getListingCategories(session: Session): Promise<ListingCategory[]> {
+export async function getListingCategories(session?: Session | null): Promise<ListingCategory[]> {
   const result = await apiRequest<{ categories: ListingCategory[] }>('/categories', session)
   return result.categories
 }
@@ -70,6 +98,21 @@ export async function getListingCategories(session: Session): Promise<ListingCat
 export async function getMyListings(session: Session): Promise<MarketplaceListing[]> {
   const result = await apiRequest<{ items: ApiListing[] }>('/listings/mine', session)
   return result.items.map(normalizeListing)
+}
+
+export async function getWatchlist(session?: Session | null): Promise<string[]> {
+  const result = await apiRequest<{ items: string[] }>('/watchlist', session)
+  return result.items
+}
+
+export async function toggleWatchlist(postId: string, session?: Session | null): Promise<boolean> {
+  const current = await getWatchlist(session)
+  if (current.includes(postId)) {
+    await apiRequest<void>(`/watchlist/${encodeURIComponent(postId)}`, session, { method: 'DELETE' })
+    return false
+  }
+  await apiRequest<{ item: { id: string } }>(`/watchlist/${encodeURIComponent(postId)}`, session, { method: 'POST' })
+  return true
 }
 
 export async function createListing(
