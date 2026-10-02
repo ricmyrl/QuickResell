@@ -149,11 +149,9 @@ export default function MarketplaceApp() {
     if (!supabase) {
       return
     }
-    void supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session)
-      setAuthLoading(false)
-    }).catch(() => setAuthLoading(false))
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+    let receivedAuthEvent = false
+    const { data: listener } = supabase.auth.onAuthStateChange((event, nextSession) => {
+      if (event !== 'INITIAL_SESSION' || nextSession) receivedAuthEvent = true
       setSession(nextSession)
       if (!nextSession) {
         setAuctions([])
@@ -168,16 +166,28 @@ export default function MarketplaceApp() {
       }
       setAuthLoading(false)
     })
+    void supabase.auth.getSession().then(({ data, error }) => {
+      if (receivedAuthEvent) return
+      if (error) throw error
+      setSession(data.session)
+      setAuthLoading(false)
+    }).catch((caught: unknown) => {
+      if (receivedAuthEvent) return
+      setAuthLoading(false)
+      showToast(caught instanceof Error ? caught.message : 'Your sign-in session could not be restored.', 'error')
+    })
     return () => listener.subscription.unsubscribe()
   }, [])
 
   useEffect(() => {
     if (authLoading || !session) return
     const requestedPath = window.sessionStorage.getItem('quickresell:auth:return-to')
-    if (!requestedPath) return
-    window.sessionStorage.removeItem('quickresell:auth:return-to')
-    if (requestedPath.startsWith('/') && !requestedPath.startsWith('//')) navigate(requestedPath, { replace: true })
-  }, [authLoading, navigate, session])
+    const destination = requestedPath ?? (authMode ? returnPath(location.state) : null)
+    if (requestedPath) window.sessionStorage.removeItem('quickresell:auth:return-to')
+    if (destination?.startsWith('/') && !destination.startsWith('//') && destination !== location.pathname) {
+      navigate(destination, { replace: true })
+    }
+  }, [authLoading, authMode, location.pathname, location.state, navigate, session])
 
   useEffect(() => {
     if (authLoading) return
