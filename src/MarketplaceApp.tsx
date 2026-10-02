@@ -291,7 +291,7 @@ export default function MarketplaceApp() {
     if (subtotalCents <= 0) throw new Error('Add at least one item to your cart before paying.')
 
     await loadPaystackScript()
-    const payment = await initializePayment(subtotalCents, session)
+    const payment = await initializePayment(session)
     const publicKey = import.meta.env.VITE_PAYSTACK_PUBLIC_KEY
     if (!publicKey) throw new Error('Add VITE_PAYSTACK_PUBLIC_KEY to your frontend environment.')
 
@@ -299,7 +299,7 @@ export default function MarketplaceApp() {
       const paystackHandler = window.PaystackPop?.setup({
         key: publicKey,
         email: session.user.email ?? '',
-        amount: subtotalCents,
+        amount: payment.amountCents,
         ref: payment.reference,
         currency: 'NGN',
         metadata: {

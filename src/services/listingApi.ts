@@ -5,11 +5,14 @@ import type { MarketplaceListing } from '../types'
 const pageHostApiUrl = typeof window !== 'undefined' && window.location.protocol === 'http:'
   ? `http://${window.location.hostname}:3000/api`
   : ''
+const configuredApiUrl = import.meta.env.VITE_API_URL?.trim()
+if (import.meta.env.PROD && !configuredApiUrl) throw new Error('VITE_API_URL must be configured for production.')
+if (import.meta.env.PROD && configuredApiUrl && new URL(configuredApiUrl).protocol !== 'https:') {
+  throw new Error('VITE_API_URL must use HTTPS in production.')
+}
 const apiBaseCandidates = Array.from(new Set([
-  (import.meta.env.VITE_API_URL ?? 'http://localhost:3000/api').replace(/\/$/, ''),
-  pageHostApiUrl,
-  'http://localhost:3000/api',
-  'http://127.0.0.1:3000/api',
+  configuredApiUrl?.replace(/\/$/, '') ?? 'http://localhost:3000/api',
+  ...(import.meta.env.PROD ? [] : [pageHostApiUrl, 'http://localhost:3000/api', 'http://127.0.0.1:3000/api']),
 ])).filter(Boolean)
 const storageBucket = 'listing-images'
 const maxImages = 8
