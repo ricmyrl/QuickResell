@@ -7,6 +7,7 @@ import type { Auction, MarketplaceListing, Verdict } from '../../types'
 import { Button } from '../common/Button'
 import { CreateListingPage } from './CreateListingModal'
 import { SellerVerdictModal } from './SellerVerdictModal'
+import { useCurrency } from '../../lib/CurrencyContext'
 
 type StudioSection = 'overview' | 'inventory' | 'auctions'
 type StudioProps = {
@@ -23,7 +24,6 @@ type StudioProps = {
   onNotice: (message: string, kind?: 'success' | 'error') => void
 }
 
-const currency = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })
 const sections: Array<{ id: StudioSection; label: string; icon: typeof LayoutGrid }> = [
   { id: 'overview', label: 'Overview', icon: LayoutGrid },
   { id: 'inventory', label: 'Inventory', icon: Boxes },
@@ -31,6 +31,8 @@ const sections: Array<{ id: StudioSection; label: string; icon: typeof LayoutGri
 ]
 
 function SellerStudio({ auctions, userId, trustScore, completedAuctions, session, emailConfirmed, ownListings, onRequestSignIn, onListingCreated, onVerdict, onNotice }: StudioProps) {
+  const { formatUsd } = useCurrency()
+  const currency = { format: formatUsd }
   const location = useLocation()
   const navigate = useNavigate()
   const [section, setSection] = useState<StudioSection>('overview')
@@ -156,11 +158,14 @@ function Metric({ icon, label, value, note, tone }: { icon: ReactNode; label: st
 }
 
 function ListingRow({ listing, detailed = false }: { listing: MarketplaceListing; detailed?: boolean }) {
+  const { formatUsd } = useCurrency()
   const low = listing.quantityAvailable > 0 && listing.quantityAvailable <= 2
-  return <article className="flex min-w-0 items-center gap-3 px-4 py-3.5 sm:px-5"><div className="grid size-[52px] shrink-0 place-items-center overflow-hidden rounded-[10px] bg-[#f1f4ef]">{listing.image ? <img src={listing.image} alt={listing.title} className="size-full object-cover" /> : <Package size={19} className="text-[#94a095]" />}</div><div className="min-w-0 flex-1"><div className="flex min-w-0 items-center gap-2"><h3 className="truncate text-sm font-semibold text-[#35473c]">{listing.title}</h3>{low && <span className="hidden shrink-0 rounded-full bg-[#fff3df] px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-[#9a7137] sm:inline">Low stock</span>}</div><p className="mt-1 truncate text-xs text-[#87938b]">{listing.category}{detailed ? ` · ${listing.location}` : ''}</p>{detailed && <div className="mt-2 flex items-center gap-2"><span className={`inline-flex items-center gap-1 text-[10px] font-semibold ${listing.quantityAvailable > 0 ? 'text-[#57805c]' : 'text-[#a45145]'}`}><span className={`size-1.5 rounded-full ${listing.quantityAvailable > 0 ? 'bg-[#6e9d70]' : 'bg-[#bd5d4d]'}`} />{listing.quantityAvailable > 0 ? 'Available' : 'Out of stock'}</span><span className="text-[10px] text-[#9aa39c]">{listing.quantityAvailable} {listing.quantityAvailable === 1 ? 'unit' : 'units'}</span></div>}</div><div className="shrink-0 text-right"><p className="font-display text-sm font-semibold text-[#304738]">{currency.format(listing.price)}</p><p className="mt-1 text-[10px] text-[#98a19b]">{listing.quantityAvailable} {detailed ? 'in stock' : 'available'}</p></div></article>
+  return <article className="flex min-w-0 items-center gap-3 px-4 py-3.5 sm:px-5"><div className="grid size-[52px] shrink-0 place-items-center overflow-hidden rounded-[10px] bg-[#f1f4ef]">{listing.image ? <img src={listing.image} alt={listing.title} className="size-full object-cover" /> : <Package size={19} className="text-[#94a095]" />}</div><div className="min-w-0 flex-1"><div className="flex min-w-0 items-center gap-2"><h3 className="truncate text-sm font-semibold text-[#35473c]">{listing.title}</h3>{low && <span className="hidden shrink-0 rounded-full bg-[#fff3df] px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-[#9a7137] sm:inline">Low stock</span>}</div><p className="mt-1 truncate text-xs text-[#87938b]">{listing.category}{detailed ? ` · ${listing.location}` : ''}</p>{detailed && <div className="mt-2 flex items-center gap-2"><span className={`inline-flex items-center gap-1 text-[10px] font-semibold ${listing.quantityAvailable > 0 ? 'text-[#57805c]' : 'text-[#a45145]'}`}><span className={`size-1.5 rounded-full ${listing.quantityAvailable > 0 ? 'bg-[#6e9d70]' : 'bg-[#bd5d4d]'}`} />{listing.quantityAvailable > 0 ? 'Available' : 'Out of stock'}</span><span className="text-[10px] text-[#9aa39c]">{listing.quantityAvailable} {listing.quantityAvailable === 1 ? 'unit' : 'units'}</span></div>}</div><div className="shrink-0 text-right"><p className="font-display text-sm font-semibold text-[#304738]">{formatUsd(listing.price)}</p><p className="mt-1 text-[10px] text-[#98a19b]">{listing.quantityAvailable} {detailed ? 'in stock' : 'available'}</p></div></article>
 }
 
 function AuctionRow({ auction, decision = false, detailed = false, onReview }: { auction: Auction; decision?: boolean; detailed?: boolean; onReview?: () => void }) {
+  const { formatUsd } = useCurrency()
+  const currency = { format: (amount: number) => formatUsd(amount, 0) }
   const statusTone = auction.status === 'ACTIVE' ? 'bg-[#edf5eb] text-[#557454]' : auction.status === 'SOLD' ? 'bg-[#eaf2ed] text-[#4b735a]' : auction.status === 'REJECTED' ? 'bg-[#faeeeb] text-[#a35347]' : 'bg-[#f0f2ef] text-[#77837a]'
   return <div className="flex min-w-0 flex-wrap items-center gap-3 px-4 py-3.5 sm:px-5"><div className="grid size-11 shrink-0 place-items-center overflow-hidden rounded-[9px] bg-[#f1f4ef]">{auction.image ? <img src={auction.image} alt="" className="size-full object-cover" /> : <CircleDollarSign size={18} className="text-[#91a094]" />}</div><div className="min-w-0 flex-1"><div className="flex min-w-0 items-center gap-2"><h3 className="truncate text-sm font-semibold text-[#35473c]">{auction.title}</h3>{detailed && <span className={`hidden shrink-0 rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide sm:inline ${statusTone}`}>{auction.status.replace('_', ' ')}</span>}</div><p className="mt-1 truncate text-xs text-[#87938b]">{decision ? `High bidder: ${auction.bids[0]?.bidder.displayName ?? 'Bidder details unavailable'}` : `${auction.bids.length} ${auction.bids.length === 1 ? 'bid' : 'bids'} · ${detailed ? auction.category : 'Current bid'}`}</p>{detailed && <p className="mt-1 text-[10px] text-[#9aa39c]">{auction.status === 'ACTIVE' ? `Ends ${new Date(auction.endsAt).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}` : `Updated ${new Date(auction.endsAt).toLocaleDateString([], { month: 'short', day: 'numeric' })}`}</p>}</div><div className="ml-auto flex items-center gap-3"><div className="text-right"><p className="font-display text-sm font-semibold text-[#304738]">{currency.format(auction.currentHighestBid)}</p><p className="mt-1 text-[10px] text-[#98a19b]">{decision ? 'Winning bid' : 'Current bid'}</p></div>{decision && onReview && <Button onClick={onReview} icon={<ChevronRight size={14} />} className="min-h-9 rounded-lg px-3 text-xs">Review</Button>}</div></div>
 }

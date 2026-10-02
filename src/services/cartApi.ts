@@ -98,8 +98,8 @@ export async function removeCartItem(postId: string, session?: Session | null): 
   await request<void>(`/cart/items/${encodeURIComponent(postId)}`, { method: 'DELETE' }, session)
 }
 
-export async function initializePayment(session?: Session | null): Promise<{ status: string; authorization_url: string; access_code: string; reference: string; amountCents: number }> {
-  return request<{ status: string; authorization_url: string; access_code: string; reference: string; amountCents: number }>('/payments/initialize', {
+export async function initializePayment(session?: Session | null): Promise<{ status: string; authorization_url: string; access_code: string; reference: string; amountCents: number; currency: string }> {
+  return request<{ status: string; authorization_url: string; access_code: string; reference: string; amountCents: number; currency: string }>('/payments/initialize', {
     method: 'POST',
     body: JSON.stringify({}),
   }, session)

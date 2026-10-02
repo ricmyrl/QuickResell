@@ -5,8 +5,7 @@ import type { Auction } from '../../types'
 import { useCountdown } from '../../hooks/useCountdown'
 import { Badge, LiveBadge } from '../common/Badge'
 import { IconButton } from '../common/Button'
-
-const currency = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })
+import { useCurrency } from '../../lib/CurrencyContext'
 
 function TimeLeft({ endsAt }: { endsAt: string }) {
   const time = useCountdown(endsAt)
@@ -15,9 +14,10 @@ function TimeLeft({ endsAt }: { endsAt: string }) {
 }
 
 function AuctionCard({ auction, index, onOpen }: { auction: Auction; index: number; onOpen: (auction: Auction) => void }) {
+  const { formatUsd } = useCurrency()
   return <motion.article className="group overflow-hidden rounded-[18px] border border-[#e6ebe7] bg-white transition-shadow hover:shadow-[0_16px_40px_rgba(32,54,45,.11)]" initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .35, delay: index * .055 }}>
     <div className="relative aspect-[1.4/1] overflow-hidden bg-[#e9eeea]"><button type="button" onClick={() => onOpen(auction)} aria-label={`Open ${auction.title} auction`} className="block size-full text-left">{auction.image && <img src={auction.image} alt={auction.title} className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" loading={index > 2 ? 'lazy' : 'eager'} />}<div className="pointer-events-none absolute left-3 top-3 flex gap-2"><LiveBadge />{auction.noReserve && <Badge className="bg-white/95 text-[#526321]">No reserve</Badge>}</div><span className="pointer-events-none absolute bottom-3 right-3 rounded-lg bg-[#17211e]/85 px-2.5 py-1.5 text-white backdrop-blur"><TimeLeft endsAt={auction.endsAt} /></span></button></div>
-    <button type="button" onClick={() => onOpen(auction)} className="block w-full p-4 text-left"><div className="mb-2 flex items-center justify-between gap-3"><span className="truncate text-[11px] font-semibold uppercase tracking-[.1em] text-[#82908a]">{auction.category}</span><span className="flex shrink-0 items-center gap-1 text-[11px] text-[#87938e]"><MapPin size={11} />{auction.location}</span></div><h3 className="font-display truncate text-[17px] font-semibold text-[#1e302a]">{auction.title}</h3><div className="mt-4 flex items-end justify-between border-t border-[#edf0ed] pt-3"><div><p className="text-[10px] font-semibold uppercase tracking-[.09em] text-[#87938e]">Current bid</p><p key={auction.currentHighestBid} className="font-display ticker-flash mt-0.5 text-[21px] font-bold text-[#1e302a]">{currency.format(auction.currentHighestBid)}</p></div><span className="mb-1 flex items-center gap-1 text-xs font-semibold text-[#547065]">{auction.bids.length} bids <ArrowUpRight size={14} /></span></div></button>
+    <button type="button" onClick={() => onOpen(auction)} className="block w-full p-4 text-left"><div className="mb-2 flex items-center justify-between gap-3"><span className="truncate text-[11px] font-semibold uppercase tracking-[.1em] text-[#82908a]">{auction.category}</span><span className="flex shrink-0 items-center gap-1 text-[11px] text-[#87938e]"><MapPin size={11} />{auction.location}</span></div><h3 className="font-display truncate text-[17px] font-semibold text-[#1e302a]">{auction.title}</h3><div className="mt-4 flex items-end justify-between border-t border-[#edf0ed] pt-3"><div><p className="text-[10px] font-semibold uppercase tracking-[.09em] text-[#87938e]">Current bid</p><p key={auction.currentHighestBid} className="font-display ticker-flash mt-0.5 text-[21px] font-bold text-[#1e302a]">{formatUsd(auction.currentHighestBid, 0)}</p></div><span className="mb-1 flex items-center gap-1 text-xs font-semibold text-[#547065]">{auction.bids.length} bids <ArrowUpRight size={14} /></span></div></button>
   </motion.article>
 }
 

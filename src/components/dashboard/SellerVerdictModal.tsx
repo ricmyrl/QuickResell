@@ -3,10 +3,11 @@ import { AlertTriangle, CheckCircle2, ShieldCheck } from 'lucide-react'
 import type { Auction, Verdict } from '../../types'
 import { Button } from '../common/Button'
 import { Modal } from '../common/Modal'
-
-const currency = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })
+import { useCurrency } from '../../lib/CurrencyContext'
 
 export function SellerVerdictModal({ auction, open, onClose, onSubmit }: { auction: Auction | null; open: boolean; onClose: () => void; onSubmit: (decision: Verdict) => Promise<void> }) {
+  const { formatUsd } = useCurrency()
+  const currency = { format: (amount: number) => formatUsd(amount, 0) }
   const [decision, setDecision] = useState<Verdict | null>(null)
   const [error, setError] = useState('')
   const submit = async (value: Verdict) => {

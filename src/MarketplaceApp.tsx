@@ -8,6 +8,7 @@ import { BidAdvert } from './components/auction/BidAdvert'
 import { GlobalFeed } from './components/feed/GlobalFeed'
 import { SellerStudio as SellerDashboard } from './components/dashboard/SellerStudio'
 import { Button, IconButton } from './components/common/Button'
+import { CurrencySelector } from './components/common/CurrencySelector'
 import { NavigationAssistant } from './components/common/NavigationAssistant'
 import { AuctionWatchlistPage } from './components/watchlist/AuctionWatchlistPage'
 import { AuthPage } from './components/auth/AuthPage'
@@ -15,6 +16,7 @@ import { ShoppingCartPage } from './components/cart/ShoppingCartPage'
 import { StorePage } from './components/store/StorePage'
 import { TrustScoreBadge } from './components/common/TrustScoreBadge'
 import { supabase } from './lib/supabase'
+import { useCurrency } from './lib/CurrencyContext'
 import { useAuctionFeedRealtime } from './hooks/useAuctionFeedRealtime'
 import { useShoppingCart } from './hooks/useShoppingCart'
 import { closeAuction, createScoutSupportRequest, getAuctionWatchlist, getNotifications, getPublicAuctions, getSellerAuctions, markAllNotificationsRead, markNotificationRead, placeBid, removeAuctionWatchlistRule, saveAuctionWatchlistRule, submitScoutFeedback, submitVerdict } from './services/api'
@@ -55,6 +57,7 @@ function isKnownPath(pathname: string): boolean {
 export default function MarketplaceApp() {
   const location = useLocation()
   const navigate = useNavigate()
+  const { localToUsd } = useCurrency()
   const view = viewForPath(location.pathname)
   const selectedId = location.pathname.match(/^\/auctions\/([^/]+)$/)?.[1] ?? null
   const authMode: AuthMode | null = location.pathname === '/auth/register' ? 'register' : location.pathname === '/auth/sign-in' ? 'signin' : null
@@ -379,7 +382,7 @@ export default function MarketplaceApp() {
         email: session.user.email ?? '',
         amount: payment.amountCents,
         ref: payment.reference,
-        currency: 'NGN',
+        currency: payment.currency,
         metadata: {
           custom_fields: [
             { display_name: 'QuickResell buyer', variable_name: 'buyer_id', value: session.user.id },
@@ -471,7 +474,13 @@ export default function MarketplaceApp() {
   }
 
   const prepareAuctionRule = (auction: Auction, maxBid: number, bidStep: number) => {
-    setPreparedWatchlistDraft({ auctionRoomId: auction.id, maxBid, bidStep })
+    const maxBidUsd = localToUsd(maxBid)
+    const bidStepUsd = localToUsd(bidStep)
+    if (maxBidUsd === null || bidStepUsd === null) {
+      showToast('Currency conversion is unavailable. Try again when rates load.', 'error')
+      return
+    }
+    setPreparedWatchlistDraft({ auctionRoomId: auction.id, maxBid: maxBidUsd, bidStep: bidStepUsd })
     setSelectedId(null)
     setView('watchlist')
   }
@@ -575,6 +584,7 @@ export default function MarketplaceApp() {
 
   const nav = <>
     <p className="mb-2 px-3 text-[10px] font-bold uppercase tracking-[.15em] text-[#98a39d]">Marketplace</p>
+    <div className="mb-3 px-1"><CurrencySelector /></div>
     <button type="button" onClick={() => { setView('feed'); setSelectedId(null) }} className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition-colors ${view === 'feed' && !selectedId ? 'bg-[#edf4ed] text-[#2d5d4c]' : 'text-[#78867e] hover:bg-[#f1f4f1] hover:text-[#263b33]'}`}><Compass size={17} />Live auctions<span className="ml-auto rounded-full bg-white px-2 py-0.5 text-[10px] text-[#74847a]">{auctions.filter((item) => item.status === 'ACTIVE').length}</span></button>
     <button type="button" onClick={() => { setView('shop'); setSelectedId(null) }} className={`mt-1 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition-colors ${view === 'shop' ? 'bg-[#edf4ed] text-[#2d5d4c]' : 'text-[#78867e] hover:bg-[#f1f4f1] hover:text-[#263b33]'}`}><Store size={17} />Shop</button>
     <button type="button" onClick={() => { setView('cart'); setSelectedId(null) }} className={`mt-1 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition-colors ${view === 'cart' ? 'bg-[#edf4ed] text-[#2d5d4c]' : 'text-[#78867e] hover:bg-[#f1f4f1] hover:text-[#263b33]'}`}><ShoppingCart size={17} />Cart<span className="ml-auto rounded-full bg-white px-2 py-0.5 text-[10px] text-[#74847a]">{userCart.items.reduce((sum, item) => sum + item.quantity, 0)}</span></button>

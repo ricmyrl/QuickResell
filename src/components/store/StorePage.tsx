@@ -3,10 +3,11 @@ import { ArrowDownUp, Check, MapPin, PackageCheck, Search, ShoppingCart, Sparkle
 import { motion } from 'framer-motion'
 import type { MarketplaceListing } from '../../types'
 import { Button } from '../common/Button'
-
-const currency = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 })
+import { useCurrency } from '../../lib/CurrencyContext'
 
 function ListingCard({ listing, onAdd, inCart, busy, saved, onToggleSaved }: { listing: MarketplaceListing; onAdd: (listing: MarketplaceListing) => void; inCart: boolean; busy: boolean; saved: boolean; onToggleSaved: (postId: string) => void }) {
+  const { formatUsd } = useCurrency()
+  const currency = { format: formatUsd }
   const discount = listing.originalPrice && listing.originalPrice > listing.price ? Math.round((1 - listing.price / listing.originalPrice) * 100) : 0
   const isVerifiedSeller = listing.seller.isCampusVerified || listing.seller.trustScore >= 80
   return <motion.article initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .3 }} className="overflow-hidden rounded-[16px] border border-[#e5eae6] bg-white transition-shadow hover:shadow-[0_14px_34px_rgba(30,55,43,.09)]">

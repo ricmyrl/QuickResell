@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Bot, ChevronDown, Compass, ExternalLink, MessageCircle, Minus, Send, ShieldCheck, Sparkles, Store, ThumbsDown, ThumbsUp, Wifi, WifiOff, X } from 'lucide-react'
 import type { FormEvent } from 'react'
 import type { Auction, AuctionWatchlistRule, MarketplaceListing } from '../../types'
+import { useCurrency } from '../../lib/CurrencyContext'
 
 type Destination = 'feed' | 'shop' | 'cart' | 'dashboard' | 'watchlist'
 type AssistantAction = { destination?: Destination } & (
@@ -34,7 +35,7 @@ type NavigationAssistantProps = {
 
 const historyKey = 'quickresell:scout:chat:v1'
 const marketCacheKey = 'quickresell:scout:market:v1'
-const quickPrompts = ['How do I place a bid?', 'Find products under $50', 'Check my bid position', 'Talk to support']
+const quickPrompts = ['How do I place a bid?', 'Find affordable products', 'Check my bid position', 'Talk to support']
 
 function readStorage<T>(key: string, fallback: T): T {
   try {
@@ -97,16 +98,16 @@ function extractPriceNumbers(text: string): number[] {
   return matches.map((match) => Number(match[1].replaceAll(',', ''))).filter((amount) => Number.isFinite(amount) && amount >= 0)
 }
 
-function getPriceLimit(text: string): number | null {
+function getPriceLimit(text: string, localToUsd: (amount: number) => number | null): number | null {
   const normalized = text.toLowerCase()
   const directMatch = normalized.match(/(?:under|below|less than|budget of|up to|max(?:imum)?(?:\s+(?:bid|price))?)\s*\$?([\d][\d,]*(?:\.\d{1,2})?)/)
-  if (directMatch) return Number(directMatch[1].replaceAll(',', ''))
+  if (directMatch) return localToUsd(Number(directMatch[1].replaceAll(',', '')))
   const numericMatches = extractPriceNumbers(normalized)
   if (!numericMatches.length) return null
-  return numericMatches[0]
+  return localToUsd(numericMatches[0])
 }
 
-function buildRecommendationSummary(text: string, matches: Auction[]): string {
+function buildRecommendationSummary(text: string, matches: Auction[], currency: (amount: number) => string): string {
   if (!matches.length) return 'I could not find a match for that request right now.'
   const normalized = text.toLowerCase()
   const isBudgetSearch = /(?:cheap|budget|deal|under|below|less than|affordable|save)/.test(normalized)
@@ -116,7 +117,8 @@ function buildRecommendationSummary(text: string, matches: Auction[]): string {
   return `The best match looks like “${matches[0].title}” at ${currency(matches[0].currentHighestBid)} in ${matches[0].location}.`
 }
 
-function answerLocally(text: string, auctions: Auction[], listings: MarketplaceListing[], currentUserId: string, rules: AuctionWatchlistRule[], online: boolean): Omit<ChatMessage, 'id' | 'role' | 'createdAt'> {
+function answerLocally(text: string, auctions: Auction[], listings: MarketplaceListing[], currentUserId: string, rules: AuctionWatchlistRule[], online: boolean, formatUsd: (amount: number, fractionDigits?: number) => string, localToUsd: (amount: number) => number | null): Omit<ChatMessage, 'id' | 'role' | 'createdAt'> {
+  const currency = (amount: number) => formatUsd(amount, 0)
   const normalized = text.toLowerCase()
   const activeAuctions = auctions.filter((auction) => auction.status === 'ACTIVE')
   const auctionMatches = findMatches(normalized, activeAuctions)
@@ -126,12 +128,12 @@ function answerLocally(text: string, auctions: Auction[], listings: MarketplaceL
 
   const maximumMatch = normalized.match(/(?:max(?:imum)?(?:\s+(?:bid|price))?|up to|bid limit)(?:\s+of)?\s*:?\s*\$?([\d,]+(?:\.\d{1,2})?)/)
   const stepMatch = normalized.match(/(?:step|increment|raise by)\s*:?\s*\$?([\d,]+(?:\.\d{1,2})?)/)
-  const maximum = maximumMatch ? Number(maximumMatch[1].replaceAll(',', '')) : 0
-  const step = stepMatch ? Number(stepMatch[1].replaceAll(',', '')) : 0
+  const maximum = maximumMatch ? localToUsd(Number(maximumMatch[1].replaceAll(',', ''))) ?? 0 : 0
+  const step = stepMatch ? localToUsd(Number(stepMatch[1].replaceAll(',', ''))) ?? 0 : 0
   const asksScoutToBid = /\b(auto.?bid|bid on my behalf|bid up to|maximum bid|bid limit|watch|watchlist|wishlist|track this|save this|watch this)\b/.test(normalized)
   const wantsBudgetHelp = /\b(cheap|budget|deal|good value|best value|affordable|under|below|less than|save|lowest price)\b/.test(normalized)
   const wantsRecommendations = /\b(best|recommend|suggest|what should i buy|what should i bid|good pick|worth it)\b/.test(normalized)
-  const priceLimit = getPriceLimit(normalized)
+  const priceLimit = getPriceLimit(normalized, localToUsd)
 
   if (asksScoutToBid && matchedAuction) {
     if (auctionMatches.length > 1 && !normalized.includes(matchedAuction.title.toLowerCase())) {
@@ -145,7 +147,7 @@ function answerLocally(text: string, auctions: Auction[], listings: MarketplaceL
       }
     }
     return {
-      text: `I found “${matchedAuction.title}” at ${currency(matchedAuction.currentHighestBid)}. Tell me your maximum and bid step, for example: “Watch ${matchedAuction.title}, max $80, step $5.” Scout will only prepare the rule; you must enable and authorize it before any bid is placed.`,
+      text: `I found “${matchedAuction.title}” at ${currency(matchedAuction.currentHighestBid)}. Tell me your maximum and bid step, for example: “Watch ${matchedAuction.title}, max ${currency(80)}, step ${currency(5)}.” Scout will only prepare the rule; you must enable and authorize it before any bid is placed.`,
       intent: 'bid_rule',
       actions: [{ label: 'Open Watchlist', kind: 'navigate', destination: 'watchlist' }],
     }
@@ -157,7 +159,7 @@ function answerLocally(text: string, auctions: Auction[], listings: MarketplaceL
     const shortlist = (filtered.length ? filtered : sortedByBudget).slice(0, 3)
     if (shortlist.length) {
       return {
-        text: `${buildRecommendationSummary(normalized, shortlist)} ${shortlist.map((auction) => `${auction.title} (${currency(auction.currentHighestBid)})`).join(', ')}. Open any auction to review the live room or set a Watchlist cap to let Scout guard your max.`,
+        text: `${buildRecommendationSummary(normalized, shortlist, currency)} ${shortlist.map((auction) => `${auction.title} (${currency(auction.currentHighestBid)})`).join(', ')}. Open any auction to review the live room or set a Watchlist cap to let Scout guard your max.`,
         intent: 'auction_search',
         actions: shortlist.map((auction) => ({ label: `${auction.title} · ${currency(auction.currentHighestBid)}`, kind: 'auction' as const, auctionId: auction.id })),
       }
@@ -180,7 +182,7 @@ function answerLocally(text: string, auctions: Auction[], listings: MarketplaceL
   }
 
   if (asksScoutToBid) {
-    return { text: 'Which live auction should I watch? Include its title, your maximum price, and a bid step. Example: “Watch Intro Psychology Textbook, max $80, step $5.” I’ll prepare a rule for you to review; it will not bid until you authorize it.', intent: 'bid_rule', actions: [{ label: 'Browse auctions', kind: 'navigate', destination: 'feed' }, { label: 'Open Watchlist', kind: 'navigate', destination: 'watchlist' }] }
+    return { text: `Which live auction should I watch? Include its title, your maximum price, and a bid step. Example: “Watch Intro Psychology Textbook, max ${currency(80)}, step ${currency(5)}.” I’ll prepare a rule for you to review; it will not bid until you authorize it.`, intent: 'bid_rule', actions: [{ label: 'Browse auctions', kind: 'navigate', destination: 'feed' }, { label: 'Open Watchlist', kind: 'navigate', destination: 'watchlist' }] }
   }
 
   if (/\b(watchlist|wishlist|watch my auctions|saved auctions)\b/.test(normalized)) {
@@ -224,7 +226,7 @@ function answerLocally(text: string, auctions: Auction[], listings: MarketplaceL
   }
 
   const listingPriceLimit = normalized.match(/(?:under|below|less than|budget of|up to)\s*\$?([\d,]+(?:\.\d{1,2})?)/)
-  const listingBudget = listingPriceLimit ? Number(listingPriceLimit[1].replaceAll(',', '')) : null
+  const listingBudget = listingPriceLimit ? localToUsd(Number(listingPriceLimit[1].replaceAll(',', ''))) : null
   if (/\b(shop|buy|browse|product|products|listing|listings|price|deal|deals|cheap|under|below)\b/.test(normalized)) {
     const eligibleListings = listings.filter((listing) => listingBudget === null || listing.price <= listingBudget)
     const matchingListings = findMatches(normalized, eligibleListings)
@@ -270,11 +272,8 @@ function answerLocally(text: string, auctions: Auction[], listings: MarketplaceL
   return { text: 'I’m not sure I understood. Try asking about a bid, a product and budget, checkout, or selling; I can also open the live auctions or Shop.', intent: 'unknown', actions: [{ label: 'Live auctions', kind: 'navigate', destination: 'feed' }, { label: 'Shop', kind: 'navigate', destination: 'shop' }, { label: 'Seller Studio', kind: 'navigate', destination: 'dashboard' }] }
 }
 
-function currency(amount: number): string {
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(amount)
-}
-
 function NavigationAssistant({ auctions, listings, dataReady, onNavigate, onOpenAuction, onOpenListing, onPrepareRule, currentUserId, auctionWatchlistRules, onFeedback, onSupportRequest, signedIn, emailConfirmed, onSignIn }: NavigationAssistantProps) {
+  const { currency: selectedCurrency, formatUsd, localToUsd, ratesReady } = useCurrency()
   const [open, setOpen] = useState(false)
   const [draft, setDraft] = useState('')
   const [feedbackVotes, setFeedbackVotes] = useState<Record<string, boolean>>(() => readStorage('quickresell:scout:feedback:v1', {}))
@@ -325,7 +324,9 @@ function NavigationAssistant({ auctions, listings, dataReady, onNavigate, onOpen
   const sendMessage = (rawText: string) => {
     const text = rawText.trim()
     if (!text) return
-    const answer = answerLocally(text, context.auctions, context.listings, currentUserId, auctionWatchlistRules, online)
+    const answer = selectedCurrency !== 'USD' && !ratesReady
+      ? { text: 'Currency rates are still loading. Please try that price request again in a moment.', intent: 'unknown' as const }
+      : answerLocally(text, context.auctions, context.listings, currentUserId, auctionWatchlistRules, online, formatUsd, localToUsd)
     const now = Date.now()
     setMessages((current) => [
       ...current,

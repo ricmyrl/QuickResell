@@ -4,8 +4,7 @@ import { ArrowRight, Clock3, ShoppingCart, Trash2, X } from 'lucide-react'
 import type { Auction } from '../../types'
 import { IconButton } from '../common/Button'
 import { LiveBadge } from '../common/Badge'
-
-const currency = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })
+import { useCurrency } from '../../lib/CurrencyContext'
 
 function RemainingTime({ endsAt }: { endsAt: string }) {
   const [now, setNow] = useState(() => Date.now())
@@ -27,6 +26,8 @@ export function AuctionCartDrawer({ open, items, onClose, onOpenAuction, onRemov
   onOpenAuction: (auction: Auction) => void
   onRemove: (auctionId: string) => void
 }) {
+  const { formatUsd } = useCurrency()
+  const currency = { format: (amount: number) => formatUsd(amount, 0) }
   return <AnimatePresence>
     {open && <motion.div className="fixed inset-0 z-50 bg-[#13211b]/40 backdrop-blur-[2px]" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
       <motion.aside role="dialog" aria-modal="true" aria-label="Your auction cart" className="absolute inset-y-0 right-0 flex w-full max-w-[440px] flex-col bg-[#fbfcfb] shadow-[-20px_0_60px_rgba(20,40,30,.16)]" initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }} transition={{ type: 'spring', stiffness: 320, damping: 34 }}>

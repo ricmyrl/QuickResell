@@ -9,14 +9,15 @@ import { Button } from '../common/Button'
 import { TrustScoreBadge } from '../common/TrustScoreBadge'
 import { SellerVerdictModal } from '../dashboard/SellerVerdictModal'
 import type { Verdict } from '../../types'
-
-const currency = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })
+import { useCurrency } from '../../lib/CurrencyContext'
 
 export function AuctionRoom({ auction, userId, onBack, onBid, onExpire, onNotice, onRoomUpdate, onVerdict }: {
   auction: Auction; userId?: string; onBack: () => void; onBid: (amount: number) => Promise<void>; onExpire: () => Promise<void>
   onNotice: (message: string, kind?: 'success' | 'error') => void; onRoomUpdate: (patch: Partial<Auction>) => void
   onVerdict: (decision: Verdict) => Promise<void>
 }) {
+  const { formatUsd } = useCurrency()
+  const currency = { format: (amount: number) => formatUsd(amount, 0) }
   const countdown = useCountdown(auction.endsAt)
   const [bidding, setBidding] = useState(false)
   const [bids, setBids] = useState(auction.bids)

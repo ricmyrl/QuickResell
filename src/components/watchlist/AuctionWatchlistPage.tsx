@@ -1,8 +1,9 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import { Activity, BellRing, Check, ChevronRight, Eye, EyeOff, Search, ShieldCheck, Trash2, WalletCards } from 'lucide-react'
 import type { Auction, AuctionWatchlistRule } from '../../types'
 import { Button } from '../common/Button'
+import { useCurrency } from '../../lib/CurrencyContext'
 
 type RuleDraft = { maxBid: string; bidStep: string; autoBidEnabled: boolean; confirmed: boolean }
 type InitialRuleDraft = { auctionRoomId: string; maxBid?: number; bidStep?: number }
@@ -21,23 +22,26 @@ type Props = {
   emailConfirmed: boolean
 }
 
-const currency = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 })
-
-function createDraft(rule?: AuctionWatchlistRule, initial?: InitialRuleDraft): RuleDraft {
+function createDraft(rule: AuctionWatchlistRule | undefined, initial: InitialRuleDraft | undefined, usdToLocal: (amount: number) => number | null): RuleDraft {
+  const maxBid = rule?.maxBid ?? initial?.maxBid
+  const bidStep = rule?.bidStep ?? initial?.bidStep ?? 5
   return {
-    maxBid: String(rule?.maxBid ?? initial?.maxBid ?? ''),
-    bidStep: String(rule?.bidStep ?? initial?.bidStep ?? 5),
+    maxBid: maxBid === undefined ? '' : String(usdToLocal(maxBid) ?? maxBid),
+    bidStep: String(usdToLocal(bidStep) ?? bidStep),
     autoBidEnabled: rule?.autoBidEnabled ?? false,
     confirmed: rule?.autoBidEnabled ?? false,
   }
 }
 
 export function AuctionWatchlistPage({ auctions, rules, loading, error, savingId, initialDraft, onSave, onRemove, onOpenAuction, onRequestSignIn, signedIn, emailConfirmed }: Props) {
+  const { currency: currencyCode, localToUsd, usdToLocal } = useCurrency()
   const [search, setSearch] = useState('')
   const [drafts, setDrafts] = useState<Record<string, RuleDraft>>({})
   const [scoutAlertMessage, setScoutAlertMessage] = useState<string | null>(null)
   const ruleByAuction = new Map(rules.map((rule) => [rule.auctionRoomId, rule]))
-  const draftFor = (auctionId: string) => drafts[auctionId] ?? createDraft(ruleByAuction.get(auctionId), initialDraft?.auctionRoomId === auctionId ? initialDraft : undefined)
+  const draftFor = (auctionId: string) => drafts[auctionId] ?? createDraft(ruleByAuction.get(auctionId), initialDraft?.auctionRoomId === auctionId ? initialDraft : undefined, usdToLocal)
+
+  useEffect(() => setDrafts({}), [currencyCode])
   const visibleAuctions = useMemo(() => {
     const query = search.trim().toLowerCase()
     return auctions.filter((auction) => auction.status === 'ACTIVE' && (!query || `${auction.title} ${auction.category} ${auction.location}`.toLowerCase().includes(query)))
@@ -54,13 +58,13 @@ export function AuctionWatchlistPage({ auctions, rules, loading, error, savingId
     }
     if (!emailConfirmed) return
     const draft = draftFor(auction.id)
-    const maxBid = Number(draft.maxBid)
-    const bidStep = Number(draft.bidStep)
-    if (!Number.isFinite(maxBid) || maxBid <= 0 || maxBid > 10_000_000) {
+    const maxBid = localToUsd(Number(draft.maxBid))
+    const bidStep = localToUsd(Number(draft.bidStep))
+    if (maxBid === null || !Number.isFinite(maxBid) || maxBid <= 0 || maxBid > 10_000_000) {
       updateDraft(auction.id, { confirmed: false })
       return
     }
-    if (!Number.isFinite(bidStep) || bidStep <= 0 || bidStep > maxBid) {
+    if (bidStep === null || !Number.isFinite(bidStep) || bidStep <= 0 || bidStep > maxBid) {
       updateDraft(auction.id, { confirmed: false })
       return
     }
@@ -104,14 +108,17 @@ export function AuctionWatchlistPage({ auctions, rules, loading, error, savingId
 }
 
 function AuctionSetupCard({ auction, rule, draft, onDraftChange, onSave, onOpen, saving }: { auction: Auction; rule?: AuctionWatchlistRule; draft: RuleDraft; onDraftChange: (update: Partial<RuleDraft>) => void; onSave: () => void; onOpen: () => void; saving: boolean }) {
+  const { formatUsd, usdToLocal } = useCurrency()
+  const currency = { format: formatUsd }
   const maxBid = Number(draft.maxBid)
-    const invalidCeiling = draft.maxBid !== '' && (!Number.isFinite(maxBid) || maxBid <= auction.currentHighestBid)
+    const currentBidLocal = usdToLocal(auction.currentHighestBid) ?? auction.currentHighestBid
+    const invalidCeiling = draft.maxBid !== '' && (!Number.isFinite(maxBid) || maxBid <= currentBidLocal)
     const missingCeiling = draft.maxBid.trim() === ''
     const lowStep = draft.bidStep !== '' && (!Number.isFinite(Number(draft.bidStep)) || Number(draft.bidStep) <= 0 || (maxBid > 0 && Number(draft.bidStep) > maxBid))
   return <article className="overflow-hidden rounded-[12px] border border-[#e5ebe4] bg-white">
     <button type="button" onClick={onOpen} className="flex w-full items-center gap-3 border-b border-[#eff2ee] p-3 text-left transition hover:bg-[#fafbf9]"><div className="grid size-14 shrink-0 place-items-center overflow-hidden rounded-[9px] bg-[#f0f3ee]">{auction.image ? <img src={auction.image} alt={auction.title} className="size-full object-cover" /> : <Activity size={18} className="text-[#8e9b90]" />}</div><span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold text-[#35463a]">{auction.title}</span><span className="mt-1 block truncate text-[10px] text-[#879289]">{auction.category} · {auction.location}</span></span><span className="shrink-0 text-right"><span className="block font-display text-sm font-semibold text-[#2e4534]">{currency.format(auction.currentHighestBid)}</span><span className="text-[9px] text-[#96a097]">current bid</span></span></button>
     <div className="space-y-3 p-3.5">
-      <div className="grid grid-cols-2 gap-2"><label className="text-[10px] font-semibold text-[#718075]">Your max price<input inputMode="decimal" type="number" min={auction.currentHighestBid + 0.01} max="10000000" step="0.01" value={draft.maxBid} onChange={(event) => onDraftChange({ maxBid: event.target.value, confirmed: false })} placeholder={`Above ${currency.format(auction.currentHighestBid)}`} className="mt-1 h-10 w-full rounded-lg border border-[#dfe7de] px-2.5 text-xs text-[#334638] outline-none focus:border-[#90aa8d]" /></label><label className="text-[10px] font-semibold text-[#718075]">Bid step<input inputMode="decimal" type="number" min="0.01" max={maxBid || undefined} step="0.01" value={draft.bidStep} onChange={(event) => onDraftChange({ bidStep: event.target.value, confirmed: false })} className="mt-1 h-10 w-full rounded-lg border border-[#dfe7de] px-2.5 text-xs text-[#334638] outline-none focus:border-[#90aa8d]" /></label></div>
+      <div className="grid grid-cols-2 gap-2"><label className="text-[10px] font-semibold text-[#718075]">Your max price<input inputMode="decimal" type="number" min={currentBidLocal + 0.01} max="10000000" step="0.01" value={draft.maxBid} onChange={(event) => onDraftChange({ maxBid: event.target.value, confirmed: false })} placeholder={`Above ${currency.format(auction.currentHighestBid)}`} className="mt-1 h-10 w-full rounded-lg border border-[#dfe7de] px-2.5 text-xs text-[#334638] outline-none focus:border-[#90aa8d]" /></label><label className="text-[10px] font-semibold text-[#718075]">Bid step<input inputMode="decimal" type="number" min="0.01" max={maxBid || undefined} step="0.01" value={draft.bidStep} onChange={(event) => onDraftChange({ bidStep: event.target.value, confirmed: false })} className="mt-1 h-10 w-full rounded-lg border border-[#dfe7de] px-2.5 text-xs text-[#334638] outline-none focus:border-[#90aa8d]" /></label></div>
       {invalidCeiling && <p className="text-[10px] text-[#ad493e]">Set a maximum above the current bid ({currency.format(auction.currentHighestBid)}).</p>}
       {lowStep && <p className="text-[10px] text-[#ad493e]">Bid step must be positive and no greater than your maximum.</p>}
       <label className="flex cursor-pointer items-center justify-between gap-3 rounded-[9px] bg-[#f5f7f3] px-3 py-2.5"><span className="min-w-0"><span className="block text-[11px] font-semibold text-[#45594a]">Let Scout bid for me</span><span className="mt-0.5 block text-[9px] leading-4 text-[#879289]">Scout may bid up to your max.</span></span><input type="checkbox" checked={draft.autoBidEnabled} onChange={(event) => onDraftChange({ autoBidEnabled: event.target.checked, confirmed: false })} className="size-4 shrink-0 accent-[#456d4c]" /></label>
@@ -123,9 +130,12 @@ function AuctionSetupCard({ auction, rule, draft, onDraftChange, onSave, onOpen,
 }
 
 function AuctionRuleCard({ auction, rule, draft, onDraftChange, onSave, onRemove, onOpen, saving }: { auction: Auction; rule: AuctionWatchlistRule; draft: RuleDraft; onDraftChange: (update: Partial<RuleDraft>) => void; onSave: () => void; onRemove: () => void; onOpen: () => void; saving: boolean }) {
+  const { formatUsd, usdToLocal } = useCurrency()
+  const currency = { format: formatUsd }
   const active = auction.status === 'ACTIVE'
   const maxBid = Number(draft.maxBid)
-  const invalidCeiling = active && draft.autoBidEnabled && maxBid <= auction.currentHighestBid
+  const currentBidLocal = usdToLocal(auction.currentHighestBid) ?? auction.currentHighestBid
+  const invalidCeiling = active && draft.autoBidEnabled && maxBid <= currentBidLocal
   const needsConsent = draft.autoBidEnabled && !draft.confirmed
   return <article className="flex min-w-0 flex-wrap items-center gap-3 p-4 sm:px-5"><button type="button" onClick={onOpen} className="grid size-12 shrink-0 place-items-center overflow-hidden rounded-[9px] bg-[#f1f4ef]">{auction.image ? <img src={auction.image} alt={auction.title} className="size-full object-cover" /> : <Activity size={17} />}</button><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><button type="button" onClick={onOpen} className="max-w-full truncate text-left text-sm font-semibold text-[#35473c] hover:underline">{auction.title}</button><span className={`rounded-full px-2 py-0.5 text-[9px] font-bold uppercase ${active && rule.autoBidEnabled ? 'bg-[#eaf4e8] text-[#4d764d]' : 'bg-[#f0f2ef] text-[#77837a]'}`}>{active ? rule.autoBidEnabled ? 'Scout on' : 'Paused' : auction.status.toLowerCase().replace('_', ' ')}</span></div><p className="mt-1 truncate text-[10px] text-[#87938b]">Current {currency.format(auction.currentHighestBid)} · Saved max {currency.format(rule.maxBid)} · Step {currency.format(rule.bidStep)}</p></div><div className="grid w-full grid-cols-2 gap-2 sm:w-[190px]"><label className="text-[9px] font-semibold text-[#718075]">Maximum<input aria-label={`Maximum bid for ${auction.title}`} inputMode="decimal" type="number" min={auction.currentHighestBid + 0.01} step="0.01" value={draft.maxBid} onChange={(event) => onDraftChange({ maxBid: event.target.value, confirmed: false })} className="mt-1 h-9 w-full rounded-lg border border-[#dfe7de] px-2 text-xs text-[#334638] outline-none focus:border-[#90aa8d]" /></label><label className="text-[9px] font-semibold text-[#718075]">Bid step<input aria-label={`Bid step for ${auction.title}`} inputMode="decimal" type="number" min="0.01" step="0.01" value={draft.bidStep} onChange={(event) => onDraftChange({ bidStep: event.target.value, confirmed: false })} className="mt-1 h-9 w-full rounded-lg border border-[#dfe7de] px-2 text-xs text-[#334638] outline-none focus:border-[#90aa8d]" /></label></div><div className="flex w-full flex-wrap items-center gap-2 sm:w-auto"><label className="flex items-center gap-2 rounded-lg bg-[#f4f6f2] px-2.5 py-2 text-[10px] font-semibold text-[#647466]"><input type="checkbox" checked={draft.autoBidEnabled && active} disabled={!active} onChange={(event) => onDraftChange({ autoBidEnabled: event.target.checked, confirmed: false })} className="size-3.5 accent-[#456d4c]" />Auto-bid</label>{draft.autoBidEnabled && !rule.autoBidEnabled && <label className="flex min-h-9 flex-1 items-center gap-1.5 text-[9px] leading-3 text-[#718075]"><input type="checkbox" checked={draft.confirmed} onChange={(event) => onDraftChange({ confirmed: event.target.checked })} className="size-3.5 shrink-0 accent-[#456d4c]" />Authorize Scout</label>}<Button variant="secondary" onClick={onSave} disabled={saving || invalidCeiling || needsConsent || (!active && draft.autoBidEnabled)} className="min-h-9 rounded-lg px-3 text-[10px]">Save</Button><button type="button" onClick={onRemove} aria-label={`Remove ${auction.title} from watchlist`} title="Remove from watchlist" className="grid size-9 shrink-0 place-items-center rounded-lg text-[#8b9690] hover:bg-[#faeeeb] hover:text-[#ad493e]"><Trash2 size={15} /></button></div></article>
   return <article className="flex min-w-0 flex-wrap items-center gap-3 p-4 sm:px-5"><button type="button" onClick={onOpen} className="grid size-12 shrink-0 place-items-center overflow-hidden rounded-[9px] bg-[#f1f4ef]">{auction.image ? <img src={auction.image} alt={auction.title} className="size-full object-cover" /> : <Activity size={17} />}</button><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><button type="button" onClick={onOpen} className="max-w-full truncate text-left text-sm font-semibold text-[#35473c] hover:underline">{auction.title}</button><span className={`rounded-full px-2 py-0.5 text-[9px] font-bold uppercase ${active && rule.autoBidEnabled ? 'bg-[#eaf4e8] text-[#4d764d]' : 'bg-[#f0f2ef] text-[#77837a]'}`}>{active ? rule.autoBidEnabled ? 'Scout on' : 'Paused' : auction.status.toLowerCase().replace('_', ' ')}</span></div><p className="mt-1 truncate text-[10px] text-[#87938b]">Current {currency.format(auction.currentHighestBid)} · Saved max {currency.format(rule.maxBid)} · Step {currency.format(rule.bidStep)}</p></div><div className="grid w-full grid-cols-2 gap-2 sm:w-[190px]"><label className="text-[9px] font-semibold text-[#718075]">Maximum<input aria-label={`Maximum bid for ${auction.title}`} inputMode="decimal" type="number" min={auction.currentHighestBid + 0.01} step="0.01" value={draft.maxBid} onChange={(event) => onDraftChange({ maxBid: event.target.value, confirmed: false })} className="mt-1 h-9 w-full rounded-lg border border-[#dfe7de] px-2 text-xs text-[#334638] outline-none focus:border-[#90aa8d]" /></label><label className="text-[9px] font-semibold text-[#718075]">Bid step<input aria-label={`Bid step for ${auction.title}`} inputMode="decimal" type="number" min="0.01" step="0.01" value={draft.bidStep} onChange={(event) => onDraftChange({ bidStep: event.target.value, confirmed: false })} className="mt-1 h-9 w-full rounded-lg border border-[#dfe7de] px-2 text-xs text-[#334638] outline-none focus:border-[#90aa8d]" /></label></div><div className="flex w-full flex-wrap items-center gap-2 sm:w-auto"><label className="flex items-center gap-2 rounded-lg bg-[#f4f6f2] px-2.5 py-2 text-[10px] font-semibold text-[#647466]"><input type="checkbox" checked={draft.autoBidEnabled && active} disabled={!active} onChange={(event) => onDraftChange({ autoBidEnabled: event.target.checked, confirmed: false })} className="size-3.5 accent-[#456d4c]" />Auto-bid</label>{draft.autoBidEnabled && !draft.confirmed && <label className="flex min-h-9 flex-1 items-center gap-1.5 text-[9px] leading-3 text-[#718075]"><input type="checkbox" checked={draft.confirmed} onChange={(event) => onDraftChange({ confirmed: event.target.checked })} className="size-3.5 shrink-0 accent-[#456d4c]" />Authorize Scout</label>}<Button variant="secondary" onClick={onSave} disabled={saving || invalidCeiling || needsConsent || (!active && draft.autoBidEnabled)} className="min-h-9 rounded-lg px-3 text-[10px]">Save</Button><button type="button" onClick={onRemove} aria-label={`Remove ${auction.title} from watchlist`} title="Remove from watchlist" className="grid size-9 shrink-0 place-items-center rounded-lg text-[#8b9690] hover:bg-[#faeeeb] hover:text-[#ad493e]"><Trash2 size={15} /></button></div></article>

@@ -4,6 +4,7 @@ import { ArrowLeft, ImagePlus, LoaderCircle, X } from 'lucide-react'
 import type { MarketplaceListing } from '../../types'
 import { createListing, getListingCategories, type ListingCategory } from '../../services/listingApi'
 import { Button, IconButton } from '../common/Button'
+import { useCurrency } from '../../lib/CurrencyContext'
 
 const maxImages = 8
 type SelectedImage = { file: File; previewUrl: string }
@@ -13,6 +14,7 @@ export function CreateListingPage({ onClose, session, onCreated }: {
   session: Session | null
   onCreated: (listing: MarketplaceListing) => void
 }) {
+  const { currency, displayCurrency, ratesReady, localToUsd } = useCurrency()
   const [categories, setCategories] = useState<ListingCategory[]>([])
   const [categoriesLoaded, setCategoriesLoaded] = useState(false)
   const [title, setTitle] = useState('')
@@ -78,14 +80,21 @@ export function CreateListingPage({ onClose, session, onCreated }: {
       return
     }
 
+    const priceUsd = localToUsd(Number(price))
+    const originalPriceUsd = originalPrice.trim() ? localToUsd(Number(originalPrice)) : null
+    if (priceUsd === null || (originalPrice.trim() && originalPriceUsd === null)) {
+      setError('Exchange rates are unavailable. Switch to USD or try again later.')
+      return
+    }
+
     setBusy(true)
     try {
       const listing = await createListing({
         title: title.trim(),
         description: description.trim(),
         categoryId,
-        price: Number(price),
-        ...(originalPrice.trim() ? { originalPrice: Number(originalPrice) } : {}),
+        price: priceUsd,
+        ...(originalPrice.trim() && originalPriceUsd !== null ? { originalPrice: originalPriceUsd } : {}),
         locationCampus: locationCampus.trim(),
         quantityAvailable: Number(quantityAvailable),
       }, images.map(({ file }) => file), session)
@@ -114,8 +123,8 @@ export function CreateListingPage({ onClose, session, onCreated }: {
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <label className="block"><span className="mb-1.5 block text-xs font-semibold text-[#43564b]">Category</span><select required value={categoryId} onChange={(event) => setCategoryId(event.target.value)} disabled={!categoriesLoaded || categories.length === 0} className="h-11 w-full rounded-xl border border-[#dfe7e1] bg-white px-3 text-sm outline-none focus:border-[#86a995] disabled:bg-[#f4f6f4]">{categories.length === 0 && <option value="">{!categoriesLoaded ? 'Loading categories…' : 'No categories found'}</option>}{categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label>
         <label className="block"><span className="mb-1.5 block text-xs font-semibold text-[#43564b]">Quantity available</span><input type="number" required min="1" max="1000" step="1" value={quantityAvailable} onChange={(event) => setQuantityAvailable(event.target.value)} className="h-11 w-full rounded-xl border border-[#dfe7e1] px-3 text-sm outline-none focus:border-[#86a995]" /></label>
-        <label className="block"><span className="mb-1.5 block text-xs font-semibold text-[#43564b]">Price ($)</span><input type="number" required min="0" step="0.01" value={price} onChange={(event) => setPrice(event.target.value)} placeholder="0.00" className="h-11 w-full rounded-xl border border-[#dfe7e1] px-3 text-sm outline-none focus:border-[#86a995]" /></label>
-        <label className="block"><span className="mb-1.5 block text-xs font-semibold text-[#43564b]">Original price ($, optional)</span><input type="number" min={price || '0'} step="0.01" value={originalPrice} onChange={(event) => setOriginalPrice(event.target.value)} placeholder="0.00" className="h-11 w-full rounded-xl border border-[#dfe7e1] px-3 text-sm outline-none focus:border-[#86a995]" /></label>
+        <label className="block"><span className="mb-1.5 block text-xs font-semibold text-[#43564b]">Price ({displayCurrency})</span><input type="number" required min="0" step="0.01" value={price} onChange={(event) => setPrice(event.target.value)} placeholder="0.00" className="h-11 w-full rounded-xl border border-[#dfe7e1] px-3 text-sm outline-none focus:border-[#86a995]" /></label>
+        <label className="block"><span className="mb-1.5 block text-xs font-semibold text-[#43564b]">Original price ({displayCurrency}, optional)</span><input type="number" min={price || '0'} step="0.01" value={originalPrice} onChange={(event) => setOriginalPrice(event.target.value)} placeholder="0.00" className="h-11 w-full rounded-xl border border-[#dfe7e1] px-3 text-sm outline-none focus:border-[#86a995]" /></label>
       </div>
       <label className="block"><span className="mb-1.5 block text-xs font-semibold text-[#43564b]">Campus pickup location</span><input maxLength={120} value={locationCampus} onChange={(event) => setLocationCampus(event.target.value)} placeholder="e.g. North Hall" className="h-11 w-full rounded-xl border border-[#dfe7e1] px-3 text-sm outline-none focus:border-[#86a995]" /></label>
 
@@ -124,6 +133,7 @@ export function CreateListingPage({ onClose, session, onCreated }: {
       </div>
 
       {error && <p role="alert" className="rounded-lg border border-[#f1d8d3] bg-[#fff5f2] px-3 py-2.5 text-xs leading-5 text-[#a34237]">{error}</p>}
+      {!ratesReady && currency !== 'USD' && <p role="status" className="text-xs text-[#a45145]">Exchange rates are unavailable; price entry is shown in USD until rates load.</p>}
       <div className="flex justify-end gap-2 border-t border-[#edf0ed] pt-4"><Button type="button" variant="secondary" disabled={busy} onClick={onClose}>Cancel</Button><Button type="submit" disabled={busy || !categoriesLoaded || categories.length === 0} icon={busy ? <LoaderCircle size={16} className="animate-spin" /> : <ImagePlus size={16} />}>{busy ? 'Publishing…' : 'Publish product'}</Button></div>
     </form>
   </section>
