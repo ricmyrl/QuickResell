@@ -100,8 +100,8 @@ export async function saveAuctionWatchlistRule(
   auctionRoomId: string,
   rule: Pick<AuctionWatchlistRule, 'maxBid' | 'bidStep' | 'autoBidEnabled'> & { authorizationConfirmed: boolean },
   session?: Session | null,
-): Promise<{ rule: AuctionWatchlistRule; autoBidPlaced: boolean }> {
-  const result = await request<{ item: ApiAuctionWatchlistRule; autoBidPlaced: boolean }>(`/watchlist/auctions/${encodeURIComponent(auctionRoomId)}`, {
+): Promise<{ rule: AuctionWatchlistRule; autoBidPlaced: boolean; emailNotified: boolean }> {
+  const result = await request<{ item: ApiAuctionWatchlistRule; autoBidPlaced: boolean; emailNotified: boolean }>(`/watchlist/auctions/${encodeURIComponent(auctionRoomId)}`, {
     method: 'PUT',
     body: JSON.stringify(rule),
   }, session)
@@ -117,11 +117,27 @@ export async function saveAuctionWatchlistRule(
       auction: normalizeRoom(result.item.auctionRoom),
     },
     autoBidPlaced: result.autoBidPlaced,
+    emailNotified: result.emailNotified,
   }
 }
 
 export async function removeAuctionWatchlistRule(auctionRoomId: string, session?: Session | null): Promise<void> {
   await request<{ removed: number }>(`/watchlist/auctions/${encodeURIComponent(auctionRoomId)}`, { method: 'DELETE' }, session)
+}
+
+export async function submitScoutFeedback(input: { messageId: string; intent: string; helpful: boolean }, session?: Session | null): Promise<void> {
+  await request<{ feedback: { id: string; helpful: boolean } }>('/scout/feedback', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  }, session)
+}
+
+export async function createScoutSupportRequest(input: { category: string; message: string }, session?: Session | null): Promise<{ id: string; emailNotified: boolean }> {
+  const result = await request<{ request: { id: string }; emailNotified: boolean }>('/scout/support', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  }, session)
+  return { id: result.request.id, emailNotified: result.emailNotified }
 }
 
 export async function getSellerAuctions(session?: Session | null): Promise<{ auctions: Auction[]; trustScore: number; completedAuctions: number }> {

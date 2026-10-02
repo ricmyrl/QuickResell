@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { Bot, ChevronDown, Compass, ExternalLink, MessageCircle, Minus, Send, ShieldCheck, Sparkles, Store, Wifi, WifiOff, X } from 'lucide-react'
+import { Bot, ChevronDown, Compass, ExternalLink, MessageCircle, Minus, Send, ShieldCheck, Sparkles, Store, ThumbsDown, ThumbsUp, Wifi, WifiOff, X } from 'lucide-react'
+import type { FormEvent } from 'react'
 import type { Auction, AuctionWatchlistRule, MarketplaceListing } from '../../types'
 
 type Destination = 'feed' | 'shop' | 'cart' | 'dashboard' | 'watchlist'
@@ -8,6 +9,7 @@ type AssistantAction = { destination?: Destination } & (
   | { label: string; kind: 'auction'; auctionId: string }
   | { label: string; kind: 'listing'; listingId: string }
   | { label: string; kind: 'prepareRule'; auctionId: string; maxBid: number; bidStep: number }
+  | { label: string; kind: 'support' }
   | { label: string; kind: 'signin' }
 )
 type ScoutIntent = 'greeting' | 'bid_rule' | 'bid_status' | 'auction_search' | 'shop_search' | 'checkout' | 'seller' | 'trust' | 'support' | 'unknown'
@@ -23,12 +25,16 @@ type NavigationAssistantProps = {
   onPrepareRule: (auction: Auction, maxBid: number, bidStep: number) => void
   currentUserId: string
   auctionWatchlistRules: AuctionWatchlistRule[]
+  onFeedback: (feedback: { messageId: string; intent: string; helpful: boolean }) => void
+  onSupportRequest: (category: string, message: string) => Promise<{ id: string; emailNotified: boolean } | null>
+  signedIn: boolean
+  emailConfirmed: boolean
   onSignIn: () => void
 }
 
 const historyKey = 'quickresell:scout:chat:v1'
 const marketCacheKey = 'quickresell:scout:market:v1'
-const quickPrompts = ['How do I place a bid?', 'Find something to buy', 'How do I sell?']
+const quickPrompts = ['How do I place a bid?', 'Find products under $50', 'Check my bid position', 'Talk to support']
 
 function readStorage<T>(key: string, fallback: T): T {
   try {
@@ -65,7 +71,7 @@ function editDistanceAtMostOne(left: string, right: string): boolean {
 }
 
 function findMatches<T extends { title: string; category: string; location?: string; description?: string }>(text: string, items: T[]): T[] {
-  const ignored = new Set(['find', 'show', 'want', 'need', 'have', 'with', 'for', 'the', 'can', 'you', 'item', 'items', 'product', 'products', 'auction', 'auctions', 'watch', 'under', 'below', 'less', 'than', 'near', 'around', 'max', 'maximum', 'price', 'bid', 'bids', 'step', 'increment', 'my', 'me', 'is', 'am', 'i', 'still', 'winning'])
+  const ignored = new Set(['find', 'show', 'want', 'need', 'have', 'with', 'for', 'the', 'can', 'you', 'item', 'items', 'product', 'products', 'auction', 'auctions', 'watch', 'under', 'below', 'less', 'than', 'near', 'around', 'max', 'maximum', 'price', 'bid', 'bids', 'step', 'increment', 'my', 'me', 'is', 'am', 'i', 'still', 'winning', 'cheap', 'budget', 'deal'])
   const words = text.toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g, '').split(/[^a-z0-9]+/)
     .filter((word) => word.length > 2 && !ignored.has(word) && !/^\d+$/.test(word))
   if (!words.length) return []
@@ -86,6 +92,30 @@ function findMatches<T extends { title: string; category: string; location?: str
     .map((match) => match.item)
 }
 
+function extractPriceNumbers(text: string): number[] {
+  const matches = [...text.matchAll(/(?:\$|usd\s*|under\s*|below\s*|up to\s*|budget\s*of\s*)?([\d][\d,]*(?:\.\d{1,2})?)/g)]
+  return matches.map((match) => Number(match[1].replaceAll(',', ''))).filter((amount) => Number.isFinite(amount) && amount >= 0)
+}
+
+function getPriceLimit(text: string): number | null {
+  const normalized = text.toLowerCase()
+  const directMatch = normalized.match(/(?:under|below|less than|budget of|up to|max(?:imum)?(?:\s+(?:bid|price))?)\s*\$?([\d][\d,]*(?:\.\d{1,2})?)/)
+  if (directMatch) return Number(directMatch[1].replaceAll(',', ''))
+  const numericMatches = extractPriceNumbers(normalized)
+  if (!numericMatches.length) return null
+  return numericMatches[0]
+}
+
+function buildRecommendationSummary(text: string, matches: Auction[]): string {
+  if (!matches.length) return 'I could not find a match for that request right now.'
+  const normalized = text.toLowerCase()
+  const isBudgetSearch = /(?:cheap|budget|deal|under|below|less than|affordable|save)/.test(normalized)
+  if (isBudgetSearch) {
+    return `I found ${matches.length} good options${matches[0].category ? ` in ${matches[0].category}` : ''} for that budget, starting at ${currency(matches[0].currentHighestBid)}.`
+  }
+  return `The best match looks like “${matches[0].title}” at ${currency(matches[0].currentHighestBid)} in ${matches[0].location}.`
+}
+
 function answerLocally(text: string, auctions: Auction[], listings: MarketplaceListing[], currentUserId: string, rules: AuctionWatchlistRule[], online: boolean): Omit<ChatMessage, 'id' | 'role' | 'createdAt'> {
   const normalized = text.toLowerCase()
   const activeAuctions = auctions.filter((auction) => auction.status === 'ACTIVE')
@@ -98,7 +128,10 @@ function answerLocally(text: string, auctions: Auction[], listings: MarketplaceL
   const stepMatch = normalized.match(/(?:step|increment|raise by)\s*:?\s*\$?([\d,]+(?:\.\d{1,2})?)/)
   const maximum = maximumMatch ? Number(maximumMatch[1].replaceAll(',', '')) : 0
   const step = stepMatch ? Number(stepMatch[1].replaceAll(',', '')) : 0
-  const asksScoutToBid = /\b(auto.?bid|bid on my behalf|bid up to|maximum bid|bid limit|watch|watchlist|wishlist)\b/.test(normalized)
+  const asksScoutToBid = /\b(auto.?bid|bid on my behalf|bid up to|maximum bid|bid limit|watch|watchlist|wishlist|track this|save this|watch this)\b/.test(normalized)
+  const wantsBudgetHelp = /\b(cheap|budget|deal|good value|best value|affordable|under|below|less than|save|lowest price)\b/.test(normalized)
+  const wantsRecommendations = /\b(best|recommend|suggest|what should i buy|what should i bid|good pick|worth it)\b/.test(normalized)
+  const priceLimit = getPriceLimit(normalized)
 
   if (asksScoutToBid && matchedAuction) {
     if (auctionMatches.length > 1 && !normalized.includes(matchedAuction.title.toLowerCase())) {
@@ -115,6 +148,34 @@ function answerLocally(text: string, auctions: Auction[], listings: MarketplaceL
       text: `I found “${matchedAuction.title}” at ${currency(matchedAuction.currentHighestBid)}. Tell me your maximum and bid step, for example: “Watch ${matchedAuction.title}, max $80, step $5.” Scout will only prepare the rule; you must enable and authorize it before any bid is placed.`,
       intent: 'bid_rule',
       actions: [{ label: 'Open Watchlist', kind: 'navigate', destination: 'watchlist' }],
+    }
+  }
+
+  if (wantsBudgetHelp && activeAuctions.length) {
+    const sortedByBudget = [...activeAuctions].sort((left, right) => left.currentHighestBid - right.currentHighestBid)
+    const filtered = priceLimit === null ? sortedByBudget : sortedByBudget.filter((auction) => auction.currentHighestBid <= priceLimit)
+    const shortlist = (filtered.length ? filtered : sortedByBudget).slice(0, 3)
+    if (shortlist.length) {
+      return {
+        text: `${buildRecommendationSummary(normalized, shortlist)} ${shortlist.map((auction) => `${auction.title} (${currency(auction.currentHighestBid)})`).join(', ')}. Open any auction to review the live room or set a Watchlist cap to let Scout guard your max.`,
+        intent: 'auction_search',
+        actions: shortlist.map((auction) => ({ label: `${auction.title} · ${currency(auction.currentHighestBid)}`, kind: 'auction' as const, auctionId: auction.id })),
+      }
+    }
+  }
+
+  if (wantsRecommendations && activeAuctions.length) {
+    const scored = [...activeAuctions].map((auction) => ({
+      auction,
+      valueScore: (auction.currentHighestBid > 0 ? 1 / auction.currentHighestBid : 0) + (auction.bids.length * 0.05),
+    })).sort((left, right) => right.valueScore - left.valueScore)
+    const best = scored[0]?.auction
+    if (best) {
+      return {
+        text: `My best-value pick is “${best.title}” at ${currency(best.currentHighestBid)} in ${best.location}. It looks like a relatively lower priced auction with some room to move, but it is still subject to the current bid and seller approval.`,
+        intent: 'auction_search',
+        actions: [{ label: 'Open this pick', kind: 'auction', auctionId: best.id }, { label: 'Browse live auctions', kind: 'navigate', destination: 'feed' }],
+      }
     }
   }
 
@@ -145,6 +206,10 @@ function answerLocally(text: string, auctions: Auction[], listings: MarketplaceL
     return { text: 'Hi there. I’m Scout, your QuickResell guide. I can help you browse, bid, shop, or find your way around.', intent: 'greeting', actions: [{ label: 'Browse auctions', kind: 'navigate', destination: 'feed' }, { label: 'Open campus shop', kind: 'navigate', destination: 'shop' }] }
   }
 
+  if (/\b(talk to (a )?(person|human)|human support|customer service|support agent|contact support|talk to support)\b/.test(normalized)) {
+    return { text: 'I can create a support request for a person to follow up. Please include what you were trying to do and any relevant item or auction title. Do not include passwords or payment details.', intent: 'support', actions: [{ label: 'Contact support', kind: 'support' }] }
+  }
+
   if (/\b(bid|bidding|bidder|auction|raise my offer|place an offer)\b/.test(normalized)) {
     if (matchedAuction) {
       if (auctionMatches.length > 1 && !normalized.includes(matchedAuction.title.toLowerCase())) {
@@ -158,20 +223,20 @@ function answerLocally(text: string, auctions: Auction[], listings: MarketplaceL
     return { text: guide, intent: 'auction_search', actions: [{ label: 'Browse live auctions', kind: 'navigate', destination: 'feed' }, ...(!activeAuctions.length ? [{ label: 'Sign in', kind: 'signin' as const }] : [])] }
   }
 
-  const priceLimitMatch = normalized.match(/(?:under|below|less than|budget of|up to)\s*\$?([\d,]+(?:\.\d{1,2})?)/)
-  const priceLimit = priceLimitMatch ? Number(priceLimitMatch[1].replaceAll(',', '')) : null
+  const listingPriceLimit = normalized.match(/(?:under|below|less than|budget of|up to)\s*\$?([\d,]+(?:\.\d{1,2})?)/)
+  const listingBudget = listingPriceLimit ? Number(listingPriceLimit[1].replaceAll(',', '')) : null
   if (/\b(shop|buy|browse|product|products|listing|listings|price|deal|deals|cheap|under|below)\b/.test(normalized)) {
-    const eligibleListings = listings.filter((listing) => priceLimit === null || listing.price <= priceLimit)
+    const eligibleListings = listings.filter((listing) => listingBudget === null || listing.price <= listingBudget)
     const matchingListings = findMatches(normalized, eligibleListings)
     if (matchingListings.length > 1 && !matchingListings.some((item) => normalized.includes(item.title.toLowerCase()))) {
-      return { text: `I found several${priceLimit === null ? '' : ` under ${currency(priceLimit)}`} matches. Choose one to view it in the Shop.`, intent: 'shop_search', actions: matchingListings.slice(0, 3).map((listing) => ({ label: `${listing.title} · ${currency(listing.price)}`, kind: 'listing' as const, listingId: listing.id })) }
+      return { text: `I found several${listingBudget === null ? '' : ` under ${currency(listingBudget)}`} matches. Choose one to view it in the Shop.`, intent: 'shop_search', actions: matchingListings.slice(0, 3).map((listing) => ({ label: `${listing.title} · ${currency(listing.price)}`, kind: 'listing' as const, listingId: listing.id })) }
     }
-    const listingToShow = matchingListings[0] ?? (priceLimit !== null ? eligibleListings.slice(0, 3)[0] : undefined)
+    const listingToShow = matchingListings[0] ?? (listingBudget !== null ? eligibleListings.slice(0, 3)[0] : undefined)
     if (listingToShow) {
-      return { text: `I found “${listingToShow.title}” in ${listingToShow.category} for ${currency(listingToShow.price)}${priceLimit === null ? '' : `, within your ${currency(priceLimit)} budget`}. Open it in the Shop to confirm stock and seller details.`, intent: 'shop_search', actions: [{ label: 'View this product', kind: 'listing', listingId: listingToShow.id }, { label: 'Open campus shop', kind: 'navigate', destination: 'shop' }] }
+      return { text: `I found “${listingToShow.title}” in ${listingToShow.category} for ${currency(listingToShow.price)}${listingBudget === null ? '' : `, within your ${currency(listingBudget)} budget`}. Open it in the Shop to confirm stock and seller details.`, intent: 'shop_search', actions: [{ label: 'View this product', kind: 'listing', listingId: listingToShow.id }, { label: 'Open campus shop', kind: 'navigate', destination: 'shop' }] }
     }
-    if (priceLimit !== null && eligibleListings.length === 0) {
-      return { text: `I couldn’t find a fixed-price item at or below ${currency(priceLimit)} in the current marketplace data. You can raise the budget or browse all Shop items.`, intent: 'shop_search', actions: [{ label: 'Browse the Shop', kind: 'navigate', destination: 'shop' }] }
+    if (listingBudget !== null && eligibleListings.length === 0) {
+      return { text: `I couldn’t find a fixed-price item at or below ${currency(listingBudget)} in the current marketplace data. You can raise the budget or browse all Shop items.`, intent: 'shop_search', actions: [{ label: 'Browse the Shop', kind: 'navigate', destination: 'shop' }] }
     }
     if (matchedListing) {
       return { text: `I found “${matchedListing.title}” in ${matchedListing.category} for ${currency(matchedListing.price)}.`, intent: 'shop_search', actions: [{ label: 'View this product', kind: 'listing', listingId: matchedListing.id }] }
@@ -209,9 +274,14 @@ function currency(amount: number): string {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(amount)
 }
 
-function NavigationAssistant({ auctions, listings, dataReady, onNavigate, onOpenAuction, onPrepareRule, onSignIn }: NavigationAssistantProps) {
+function NavigationAssistant({ auctions, listings, dataReady, onNavigate, onOpenAuction, onOpenListing, onPrepareRule, currentUserId, auctionWatchlistRules, onFeedback, onSupportRequest, signedIn, emailConfirmed, onSignIn }: NavigationAssistantProps) {
   const [open, setOpen] = useState(false)
   const [draft, setDraft] = useState('')
+  const [feedbackVotes, setFeedbackVotes] = useState<Record<string, boolean>>(() => readStorage('quickresell:scout:feedback:v1', {}))
+  const [supportOpen, setSupportOpen] = useState(false)
+  const [supportCategory, setSupportCategory] = useState('BIDDING')
+  const [supportMessage, setSupportMessage] = useState('')
+  const [supportNotice, setSupportNotice] = useState('')
   const [online, setOnline] = useState(typeof navigator === 'undefined' || navigator.onLine)
   const [cachedData] = useState<CachedMarketData>(() => readStorage(marketCacheKey, { auctions: [], listings: [], savedAt: 0 }))
   const [messages, setMessages] = useState<ChatMessage[]>(() => readStorage(historyKey, []))
@@ -255,7 +325,7 @@ function NavigationAssistant({ auctions, listings, dataReady, onNavigate, onOpen
   const sendMessage = (rawText: string) => {
     const text = rawText.trim()
     if (!text) return
-    const answer = answerLocally(text, context.auctions, context.listings)
+    const answer = answerLocally(text, context.auctions, context.listings, currentUserId, auctionWatchlistRules, online)
     const now = Date.now()
     setMessages((current) => [
       ...current,
@@ -273,12 +343,54 @@ function NavigationAssistant({ auctions, listings, dataReady, onNavigate, onOpen
       if (auction) onPrepareRule(auction, action.maxBid, action.bidStep)
       else onNavigate('watchlist')
     }
+    if (action.kind === 'listing') {
+      const listing = context.listings.find((item) => item.id === action.listingId)
+      if (listing) onOpenListing(listing)
+      else onNavigate('shop')
+    }
+    if (action.kind === 'support') {
+      setSupportOpen(true)
+      setSupportNotice('')
+    }
     if (action.kind === 'auction') {
       const auction = context.auctions.find((item) => item.id === action.auctionId)
       if (auction) onOpenAuction(auction)
       else onNavigate('feed')
     }
     setOpen(false)
+  }
+
+  const saveFeedback = (message: ChatMessage, helpful: boolean) => {
+    const next = { ...feedbackVotes, [message.id]: helpful }
+    setFeedbackVotes(next)
+    try {
+      localStorage.setItem('quickresell:scout:feedback:v1', JSON.stringify(next))
+    } catch {
+      setSupportNotice('Feedback could not be saved on this device.')
+    }
+    onFeedback({ messageId: message.id, intent: message.intent ?? 'unknown', helpful })
+  }
+
+  const submitSupport = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!online) {
+      setSupportNotice('Reconnect to submit your support request. Your drafted message remains here.')
+      return
+    }
+    if (!signedIn) {
+      setSupportNotice('Sign in to send a support request.')
+      return
+    }
+    if (!emailConfirmed) {
+      setSupportNotice('Confirm your email to send a support request.')
+      return
+    }
+    const result = await onSupportRequest(supportCategory, supportMessage)
+    if (!result) return
+    setSupportMessage('')
+    setSupportNotice(result.emailNotified
+      ? `Request ${result.id} was sent to the support team.`
+      : `Request ${result.id} was saved. Support email is not configured, so the team was not notified yet.`)
   }
 
   const statusText = !online ? 'Offline · local help ready' : isUsingCache ? 'Reconnecting · saved data' : 'Ready to help'
@@ -290,14 +402,40 @@ function NavigationAssistant({ auctions, listings, dataReady, onNavigate, onOpen
       <div className="flex items-center gap-2 border-b border-[#edf1ec] bg-[#f6f8f4] px-4 py-2 text-[10px] text-[#77867b]"><Sparkles size={12} className="text-[#82934f]" />Answers run on this device. {isUsingCache ? `Using saved marketplace data from ${new Date(cachedData.savedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}.` : dataReady ? 'Marketplace context is up to date.' : 'Navigation and bidding help work without a connection.'}</div>
 
       <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-4 sm:px-4" aria-live="polite">
-        {messages.length === 0 ? <div className="py-3"><div className="mb-4 flex gap-3"><span className="grid size-8 shrink-0 place-items-center rounded-[10px] bg-[#e8f0e4] text-[#4f7050]"><Compass size={16} /></span><div className="max-w-[84%] rounded-2xl rounded-tl-sm bg-[#eef3eb] px-3.5 py-3 text-[13px] leading-5 text-[#3f5143]"><p className="font-semibold text-[#2d4535]">Hi, I’m Scout.</p><p className="mt-1">I can find your way around QuickResell, explain bidding, and help you reach the right screen.</p></div></div><div className="ml-11 flex flex-wrap gap-2">{quickPrompts.map((prompt) => <button key={prompt} type="button" onClick={() => sendMessage(prompt)} className="rounded-full border border-[#dce6d9] bg-white px-3 py-2 text-left text-[11px] font-semibold text-[#526b55] transition hover:border-[#9fb49c] hover:bg-[#f5f8f3]">{prompt}</button>)}</div></div> : messages.map((message) => <div key={message.id} className={`flex ${message.role === 'customer' ? 'justify-end' : 'justify-start'}`}><div className={`max-w-[88%] ${message.role === 'customer' ? 'rounded-2xl rounded-br-sm bg-[#2d5140] px-3.5 py-2.5 text-white' : 'rounded-2xl rounded-tl-sm bg-[#eef3eb] px-3.5 py-3 text-[#405245]'}`}><p className="whitespace-pre-wrap text-[12px] leading-[19px]">{message.text}</p>{message.actions?.length ? <div className="mt-3 flex flex-wrap gap-1.5">{message.actions.map((action, index) => <button key={`${message.id}-${index}`} type="button" onClick={() => runAction(action)} className="inline-flex min-h-8 items-center gap-1 rounded-lg border border-[#d8e2d4] bg-white px-2.5 text-[10px] font-bold text-[#436448] transition hover:border-[#a9bca4] hover:bg-[#f8faf6]">{action.kind === 'auction' ? <ExternalLink size={11} /> : action.kind === 'signin' ? <ShieldCheck size={11} /> : action.destination === 'shop' ? <Store size={11} /> : <Compass size={11} />}{action.label}</button>)}</div> : null}</div></div>)}
+        {messages.length === 0 ? <div className="py-3"><div className="mb-4 flex gap-3"><span className="grid size-8 shrink-0 place-items-center rounded-[10px] bg-[#e8f0e4] text-[#4f7050]"><Compass size={16} /></span><div className="max-w-[84%] rounded-2xl rounded-tl-sm bg-[#eef3eb] px-3.5 py-3 text-[13px] leading-5 text-[#3f5143]"><p className="font-semibold text-[#2d4535]">Hi, I’m Scout.</p><p className="mt-1">I can find your way around QuickResell, explain bidding, and help you reach the right screen.</p></div></div><div className="ml-11 flex flex-wrap gap-2">{quickPrompts.map((prompt) => <button key={prompt} type="button" onClick={() => sendMessage(prompt)} className="rounded-full border border-[#dce6d9] bg-white px-3 py-2 text-left text-[11px] font-semibold text-[#526b55] transition hover:border-[#9fb49c] hover:bg-[#f5f8f3]">{prompt}</button>)}</div></div> : messages.map((message) => <div key={message.id} className={`flex ${message.role === 'customer' ? 'justify-end' : 'justify-start'}`}><div className={`max-w-[88%] ${message.role === 'customer' ? 'rounded-2xl rounded-br-sm bg-[#2d5140] px-3.5 py-2.5 text-white' : 'rounded-2xl rounded-tl-sm bg-[#eef3eb] px-3.5 py-3 text-[#405245]'}`}><p className="whitespace-pre-wrap text-[12px] leading-[19px]">{message.text}</p>{message.actions?.length ? <div className="mt-3 flex flex-wrap gap-1.5">{message.actions.map((action, index) => <button key={`${message.id}-${index}`} type="button" onClick={() => runAction(action)} className="inline-flex min-h-8 items-center gap-1 rounded-lg border border-[#d8e2d4] bg-white px-2.5 text-[10px] font-bold text-[#436448] transition hover:border-[#a9bca4] hover:bg-[#f8faf6]">{action.kind === 'auction' ? <ExternalLink size={11} /> : action.kind === 'signin' ? <ShieldCheck size={11} /> : action.destination === 'shop' ? <Store size={11} /> : <Compass size={11} />}{action.label}</button>)}</div> : null}{message.role === 'assistant' && message.intent && !feedbackVotes[message.id] ? <div className="mt-3 flex items-center gap-2 border-t border-[#e2e9e0] pt-2 text-[10px] font-semibold text-[#64766a]"><span>Helpful?</span><button type="button" aria-label="Mark answer helpful" onClick={() => saveFeedback(message, true)} className="inline-flex items-center gap-1 rounded-full border border-[#d7e1d5] bg-white px-2 py-1 text-[#2a5140] hover:bg-[#f5faf4]"><ThumbsUp size={11} />Yes</button><button type="button" aria-label="Mark answer unhelpful" onClick={() => saveFeedback(message, false)} className="inline-flex items-center gap-1 rounded-full border border-[#d7e1d5] bg-white px-2 py-1 text-[#6c4b3c] hover:bg-[#faf3f0]"><ThumbsDown size={11} />No</button></div> : null}</div></div>)}
         <div ref={endRef} />
       </div>
+
+      {supportOpen && <form onSubmit={submitSupport} className="border-t border-[#e9eee8] bg-[#f9faf8] p-3">
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <p className="text-[10px] font-bold uppercase tracking-[.12em] text-[#6e7d74]">Support request</p>
+          <button type="button" onClick={() => setSupportOpen(false)} className="rounded-full p-1 text-[#6f796d] hover:bg-[#eef2ee]"><X size={12} /></button>
+        </div>
+        <label className="mb-2 block text-[11px] font-semibold text-[#42564a]">
+          Topic
+          <select value={supportCategory} onChange={(event) => setSupportCategory(event.target.value)} className="mt-1 w-full rounded-lg border border-[#dfe7df] bg-white px-3 py-2 text-[12px] text-[#2c4137] outline-none focus:border-[#9cae9c]">
+            <option value="BIDDING">Bidding</option>
+            <option value="SHOPPING">Shopping</option>
+            <option value="SELLING">Selling</option>
+            <option value="PAYMENT">Payment</option>
+            <option value="OTHER">Other</option>
+          </select>
+        </label>
+        <label className="mb-2 block text-[11px] font-semibold text-[#42564a]">
+          Details
+          <textarea value={supportMessage} onChange={(event) => setSupportMessage(event.target.value)} rows={4} placeholder="Tell us what happened and which item or auction you mean." className="mt-1 w-full rounded-lg border border-[#dfe7df] bg-white px-3 py-2 text-[12px] text-[#2c4137] outline-none focus:border-[#9cae9c]" />
+        </label>
+        {supportNotice && <p className="mb-2 rounded-lg bg-[#edf3ee] px-2.5 py-2 text-[11px] text-[#3c4e43]">{supportNotice}</p>}
+        <div className="flex justify-end gap-2">
+          <button type="button" onClick={() => { setSupportOpen(false); setSupportNotice('') }} className="rounded-lg border border-[#dfe7df] bg-white px-3 py-2 text-[11px] font-semibold text-[#4d6257]">Cancel</button>
+          <button type="submit" disabled={!supportMessage.trim() || !online || !signedIn || !emailConfirmed} className="rounded-lg bg-[#2d5140] px-3 py-2 text-[11px] font-semibold text-white disabled:cursor-not-allowed disabled:bg-[#b9c2b8]">Send request</button>
+        </div>
+      </form>}
 
       <div className="border-t border-[#e9eee8] bg-white p-3"><form onSubmit={(event) => { event.preventDefault(); sendMessage(draft) }} className="flex items-center gap-2 rounded-xl border border-[#dfe7dd] bg-[#fafbf9] p-1.5 pl-3 focus-within:border-[#93ad8e]"><input value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="Ask about bidding, shopping…" aria-label="Message Scout" className="min-w-0 flex-1 bg-transparent py-2 text-xs text-[#314336] outline-none placeholder:text-[#9aa59b]" /><button type="submit" disabled={!draft.trim()} aria-label="Send message" className="grid size-9 shrink-0 place-items-center rounded-lg bg-[#2d5140] text-white transition hover:bg-[#3d684d] disabled:cursor-not-allowed disabled:bg-[#b8c2b8]"><Send size={15} /></button></form><div className="mt-2 flex items-center justify-between px-1 text-[9px] text-[#9aa49c]"><span className="inline-flex items-center gap-1">{online ? <Wifi size={10} /> : <WifiOff size={10} />}{online ? 'Local assistant · marketplace context' : 'Offline ready'}</span><span>Scout can make mistakes</span></div></div>
     </section>}
 
-    <button type="button" aria-label={open ? 'Close Scout assistant' : 'Open Scout assistant'} aria-expanded={open} onClick={() => setOpen((current) => !current)} className={`fixed bottom-[82px] right-4 z-40 inline-flex h-12 items-center gap-2 rounded-full border border-[#d4e1d1] bg-[#d4f06b] px-4 text-sm font-bold text-[#243a30] shadow-[0_8px_28px_rgba(28,49,34,.2)] transition hover:bg-[#c6e65b] sm:bottom-6 sm:right-6 ${open ? 'hidden sm:inline-flex' : ''}`}><MessageCircle size={18} /><span>Ask Scout</span><ChevronDown size={15} /></button>
+    <button type="button" aria-label={open ? 'Close Scout assistant' : 'Open Scout assistant'} aria-expanded={open} onClick={() => setOpen((current) => !current)} className={`fixed bottom-[82px] right-4 z-40 inline-flex h-12 w-12 transform items-center justify-center rounded-full border border-[#eadfb9] bg-[#f4eddb] text-[#2d3d34] shadow-[0_12px_28px_rgba(42,37,24,.14)] backdrop-blur-sm transition-transform duration-150 hover:bg-[#efe6cc] active:translate-y-[1px] sm:bottom-6 sm:right-6 sm:h-12 sm:w-auto sm:px-4 sm:gap-2 ${open ? 'hidden sm:inline-flex' : ''}`}><MessageCircle size={18} /><span className="hidden sm:inline">Ask Scout</span><ChevronDown size={15} className="hidden sm:inline" /></button>
   </>
 }
 

@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from 'framer-motion'
 import { Bell, Bookmark, Compass, GraduationCap, ImagePlus, LayoutDashboard, Search, ShieldCheck, ShoppingBag, ShoppingCart, Sparkles, Store, X } from 'lucide-react'
 import type { Session } from '@supabase/supabase-js'
 import { AuctionRoom } from './components/auction/AuctionRoom'
+import { BidAdvert } from './components/auction/BidAdvert'
 import { GlobalFeed } from './components/feed/GlobalFeed'
 import { SellerStudio as SellerDashboard } from './components/dashboard/SellerStudio'
 import { Button, IconButton } from './components/common/Button'
@@ -15,7 +16,7 @@ import { TrustScoreBadge } from './components/common/TrustScoreBadge'
 import { supabase } from './lib/supabase'
 import { useAuctionFeedRealtime } from './hooks/useAuctionFeedRealtime'
 import { useShoppingCart } from './hooks/useShoppingCart'
-import { closeAuction, getAuctionWatchlist, getNotifications, getPublicAuctions, getSellerAuctions, markAllNotificationsRead, markNotificationRead, placeBid, removeAuctionWatchlistRule, saveAuctionWatchlistRule, submitVerdict } from './services/api'
+import { closeAuction, createScoutSupportRequest, getAuctionWatchlist, getNotifications, getPublicAuctions, getSellerAuctions, markAllNotificationsRead, markNotificationRead, placeBid, removeAuctionWatchlistRule, saveAuctionWatchlistRule, submitScoutFeedback, submitVerdict } from './services/api'
 import { getStoreListings, initializePayment, verifyPayment } from './services/cartApi'
 import { getListingCategories, getMyListings, getWatchlist, toggleWatchlist } from './services/listingApi'
 import type { Auction, AuctionWatchlistRule, MarketplaceListing, NotificationItem, PurchaseOrder, Verdict } from './types'
@@ -360,9 +361,19 @@ export default function MarketplaceApp() {
       const result = await saveAuctionWatchlistRule(auctionRoomId, rule, session)
       setAuctionWatchlistRules((current) => [result.rule, ...current.filter((item) => item.auctionRoomId !== auctionRoomId)])
       setPreparedWatchlistDraft(null)
-      showToast(result.autoBidPlaced ? 'Scout placed a bid within your saved maximum.' : rule.autoBidEnabled ? 'Scout is watching this auction within your price limit.' : 'Auction saved to your watchlist.')
+      if (result.emailNotified) {
+        showToast('Scout email alert sent to your inbox.')
+      } else if (result.autoBidPlaced) {
+        showToast('Scout placed a bid within your saved maximum.')
+      } else if (rule.autoBidEnabled) {
+        showToast('Scout is watching this auction within your price limit.')
+      } else {
+        showToast('Auction saved to your watchlist.')
+      }
+      return { emailNotified: result.emailNotified }
     } catch (caught) {
       showToast(caught instanceof Error ? caught.message : 'Your bid rule could not be saved.', 'error')
+      return undefined
     } finally {
       setWatchlistSavingId(null)
     }
@@ -383,6 +394,41 @@ export default function MarketplaceApp() {
     setPreparedWatchlistDraft({ auctionRoomId: auction.id, maxBid, bidStep })
     setSelectedId(null)
     setView('watchlist')
+  }
+
+  const handleScoutFeedback = async (input: { messageId: string; intent: string; helpful: boolean }) => {
+    if (!session || !emailConfirmed) return
+    try {
+      await submitScoutFeedback(input, session)
+    } catch {
+      showToast('Feedback could not sync right now; it remains saved on this device.', 'error')
+    }
+  }
+
+  const handleScoutSupportRequest = async (category: string, message: string): Promise<{ id: string; emailNotified: boolean } | null> => {
+    if (!session) {
+      setAuthMode('signin')
+      return null
+    }
+    if (!emailConfirmed) {
+      showToast('Confirm your email before sending a support request.', 'error')
+      return null
+    }
+    try {
+      return await createScoutSupportRequest({ category, message }, session)
+    } catch (caught) {
+      showToast(caught instanceof Error ? caught.message : 'Your support request could not be sent.', 'error')
+      return null
+    }
+  }
+
+  const handleScoutOpenListing = (listing: MarketplaceListing) => {
+    try {
+      localStorage.setItem('quickresell:store:search', listing.title)
+    } catch {
+      showToast('Could not prepare that product search in this browser.', 'error')
+    }
+    setView('shop')
   }
 
   const openSellerStudio = () => {
@@ -458,7 +504,7 @@ export default function MarketplaceApp() {
   </>
 
   return authMode ? <AuthPage initialMode={authMode} onBack={() => { setAuthMode(null); setSellerEntryPending(false); setViewAfterLogin(null) }} onAuthenticated={() => { setAuthMode(null); showToast('You’re signed in. Welcome to Quick Resell.'); if (sellerEntryPending) { setViewState('dashboard'); setSellerEntryPending(false) } if (viewAfterLogin) { setViewState(viewAfterLogin); setViewAfterLogin(null) } }} /> : <div className="min-h-screen bg-[#f5f7f5] text-[#192724]">
-    <header className="sticky top-0 z-30 flex h-[68px] items-center gap-4 border-b border-[#e6ebe7] bg-white/95 px-4 backdrop-blur-md sm:px-6 lg:px-8">
+    <header className="sticky top-0 z-30 flex h-[68px] items-center gap-3 border-b border-[#e6ebe7] bg-white/95 px-3 backdrop-blur-md sm:gap-4 sm:px-6 lg:px-8">
       <button type="button" onClick={() => { setView('feed'); setSelectedId(null) }} className="flex shrink-0 items-center gap-2.5"><span className="grid size-9 place-items-center rounded-xl bg-[#d4f06b] text-[#243a33]"><ShoppingBag size={19} strokeWidth={2.5} /></span><span className="font-display text-[17px] font-bold tracking-[-.03em]">quick<span className="text-[#70917c]">resell</span></span></button>
       <div className={`relative mx-auto w-full max-w-[540px] ${searchOpen ? 'block' : 'hidden'} md:block`}><Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#96a19b]" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search finds around campus" className="h-10 w-full rounded-xl border border-[#e7ece8] bg-[#f7f9f7] pl-10 pr-4 text-sm outline-none transition focus:border-[#9ab4a2] focus:bg-white" />{search && <div className="absolute left-0 right-0 top-12 z-40 overflow-hidden rounded-xl border border-[#e6ebe7] bg-white shadow-lg">{searchResults.map((auction) => <button key={auction.id} type="button" onClick={() => { setSelectedId(auction.id); setSearch(''); setSearchOpen(false) }} className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-[#f5f8f5]"><img src={auction.image} alt="" className="size-10 rounded-lg object-cover" /><span className="min-w-0 flex-1 truncate text-sm font-semibold">{auction.title}</span><span className="text-xs text-[#74847a]">${auction.currentHighestBid}</span></button>)}{!searchResults.length && <p className="p-4 text-sm text-[#849189]">No matching live listings.</p>}</div>}</div>
       <div className="ml-auto flex shrink-0 items-center gap-1.5"><span className={`hidden items-center gap-1.5 rounded-full px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-[.08em] sm:inline-flex ${dataError ? 'bg-[#fff1ee] text-[#9c493d]' : 'bg-[#ebf5ee] text-[#477358]'}`}><span className={`size-1.5 rounded-full ${dataError ? 'bg-[#c45c4d]' : 'bg-[#66a178]'}`} />{apiStatus}</span><span className="relative"><IconButton label={`Open cart, ${userCart.items.reduce((sum, item) => sum + item.quantity, 0)} items`} onClick={() => { setSelectedId(null); setView('cart') }}><ShoppingCart size={18} /></IconButton>{userCart.items.length > 0 && <span className="pointer-events-none absolute right-0 top-0 grid min-h-4 min-w-4 place-items-center rounded-full bg-[#d94b3d] px-1 text-[9px] font-bold text-white">{userCart.items.reduce((sum, item) => sum + item.quantity, 0)}</span>}</span><div className="relative"><IconButton label="Notifications" onClick={() => setNotificationsOpen((current) => !current)}><Bell size={17} /></IconButton>{unreadNotifications > 0 && <span className="pointer-events-none absolute -right-1 -top-1 grid min-h-4 min-w-4 place-items-center rounded-full bg-[#d94b3d] px-1 text-[9px] font-bold text-white">{Math.min(unreadNotifications, 9)}</span>}{notificationsOpen && <div className="absolute right-0 top-12 z-50 w-[320px] overflow-hidden rounded-2xl border border-[#e4eae5] bg-white shadow-2xl"><div className="flex items-center justify-between border-b border-[#eef2ee] px-4 py-3"><div><p className="text-[10px] font-bold uppercase tracking-[.12em] text-[#909c96]">Alerts</p><p className="mt-0.5 text-sm font-semibold text-[#2a4035]">Your marketplace feed</p></div>{unreadNotifications > 0 && <button type="button" onClick={() => void handleMarkAllNotificationsRead()} className="text-[11px] font-semibold text-[#3d6e5d] underline-offset-2 hover:underline">Clear all</button>}</div><div className="max-h-[340px] overflow-y-auto p-2">{notifications.length === 0 ? <div className="rounded-xl bg-[#f7faf7] px-3 py-5 text-center text-xs text-[#7d8a84]">No notifications yet. New bids and price updates will appear here.</div> : notifications.slice(0, 8).map((notification) => <button key={notification.id} type="button" onClick={() => { setNotificationsOpen(false); void handleNotificationRead(notification.id) }} className={`flex w-full items-start gap-3 rounded-xl border px-3 py-3 text-left transition ${notification.isRead ? 'border-transparent bg-[#f9faf9]' : 'border-[#e4f0e7] bg-[#edf8f1]'}`}><span className={`mt-0.5 grid size-7 place-items-center rounded-full ${notification.type === 'OUTBID' || notification.type === 'AUCTION_CLOSED' ? 'bg-[#fff3ef] text-[#c8574a]' : notification.type === 'AUCTION_WON' || notification.type === 'LISTING_SOLD' ? 'bg-[#eaf9ea] text-[#3c7d5b]' : 'bg-[#edf2ff] text-[#536ab9]'}`}><Bell size={14} /></span><span className="min-w-0 flex-1"><span className="block text-[11px] font-semibold uppercase tracking-[.08em] text-[#8a9891]">{notification.type.replace(/_/g, ' ').toLowerCase()}</span><span className="mt-0.5 block text-sm font-semibold text-[#21372f]">{notification.title}</span><span className="mt-1 block text-xs leading-5 text-[#75837d]">{notification.message}</span></span></button> )}</div></div>}</div>{session ? <button type="button" onClick={() => void supabase?.auth.signOut()} className="ml-1 flex items-center gap-2 rounded-full border border-[#e7ece8] p-1 pr-3"><span aria-hidden="true" className="grid size-8 place-items-center rounded-full bg-[#e9f0e8] text-xs font-bold text-[#456555]">{(session.user.user_metadata.full_name ?? session.user.email ?? '?').slice(0, 1).toUpperCase()}</span><span className="hidden max-w-24 truncate text-xs font-semibold sm:block">{session.user.user_metadata.full_name ?? session.user.email}</span></button> : <Button variant="secondary" onClick={() => setAuthMode('signin')} className="ml-1 min-h-9 rounded-lg px-3 text-xs">Sign in</Button>}</div>
@@ -466,11 +512,11 @@ export default function MarketplaceApp() {
 
     <div className="border-b border-[#e4eae5] bg-white"><div className="mx-auto flex max-w-[1640px] flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-6 lg:px-8"><div><p className="text-sm font-semibold text-[#2b4036]">Have something to sell?</p><p className="mt-0.5 text-xs text-[#7a8781]">Add product photos and list it for your campus.</p></div><Button variant="secondary" onClick={openSellerStudio} icon={<ImagePlus size={16} />}>Sell an item</Button></div></div>
 
-    <div className="mx-auto grid max-w-[1640px] grid-cols-1 lg:grid-cols-[210px_minmax(0,1fr)] xl:grid-cols-[220px_minmax(0,1fr)_270px]">
-      <aside className="sticky top-[68px] hidden h-[calc(100vh-68px)] flex-col border-r border-[#e6ebe7] bg-[#f9faf9] px-4 py-6 lg:flex"><nav className="space-y-1">{nav}</nav><div className="mt-auto rounded-[16px] bg-[#e9f0e8] p-4"><div className="mb-3 grid size-8 place-items-center rounded-lg bg-white text-[#537666]"><GraduationCap size={18} /></div><p className="font-display text-sm font-semibold text-[#2f4a3d]">Campus verified</p><p className="mt-1 text-[11px] leading-4 text-[#72867a]">Trade with people who are right around the corner.</p><div className="mt-3 flex items-center gap-1 text-[10px] font-bold uppercase tracking-[.1em] text-[#63816f]"><ShieldCheck size={12} />Trust matters here</div></div></aside>
+    <div className="mx-auto grid max-w-[1640px] grid-cols-1 md:grid-cols-[180px_minmax(0,1fr)] xl:grid-cols-[220px_minmax(0,1fr)_270px]">
+      <aside className="sticky top-[68px] hidden h-[calc(100vh-68px)] flex-col border-r border-[#e6ebe7] bg-[#f9faf9] px-4 py-6 md:flex"><nav className="space-y-1">{nav}</nav><div className="mt-auto rounded-[16px] bg-[#e9f0e8] p-4"><div className="mb-3 grid size-8 place-items-center rounded-lg bg-white text-[#537666]"><GraduationCap size={18} /></div><p className="font-display text-sm font-semibold text-[#2f4a3d]">Campus verified</p><p className="mt-1 text-[11px] leading-4 text-[#72867a]">Trade with people who are right around the corner.</p><div className="mt-3 flex items-center gap-1 text-[10px] font-bold uppercase tracking-[.1em] text-[#63816f]"><ShieldCheck size={12} />Trust matters here</div></div></aside>
 
-      {!selectedAuction && view !== 'watchlist' && <button type="button" aria-label="Open auction watchlist" title="Open auction watchlist" onClick={() => { setSelectedId(null); setView('watchlist') }} className="fixed bottom-[82px] left-4 z-40 inline-flex h-12 items-center gap-2 rounded-full border border-[#dce5d8] bg-white px-4 text-xs font-bold text-[#385641] shadow-[0_8px_28px_rgba(28,49,34,.12)] transition hover:bg-[#f6f9f3] lg:hidden"><Bookmark size={16} />Watchlist{auctionWatchlistRules.length > 0 && <span className="grid size-5 place-items-center rounded-full bg-[#e7f0e4] text-[10px]">{auctionWatchlistRules.length}</span>}</button>}
-      <NavigationAssistant auctions={auctions} listings={listings} dataReady={!dataLoading && !dataError} onNavigate={(destination) => { if (destination === 'dashboard') { openSellerStudio(); return } setSelectedId(null); setView(destination) }} onOpenAuction={(auction) => { setSelectedId(auction.id); setViewState('feed') }} onPrepareRule={prepareAuctionRule} onSignIn={() => setAuthMode('signin')} />
+      {!selectedAuction && view !== 'watchlist' && <button type="button" aria-label="Open auction watchlist" title="Open auction watchlist" onClick={() => { setSelectedId(null); setView('watchlist') }} className="fixed bottom-[154px] right-4 z-40 inline-flex h-12 w-12 transform items-center justify-center rounded-full border border-[#cfe4d5] bg-[#dfeee2] text-[#244737] shadow-[0_12px_28px_rgba(35,56,43,.14)] backdrop-blur-sm transition-transform duration-150 hover:bg-[#d2ebd8] active:translate-y-[1px] lg:hidden"><Bookmark size={17} />{auctionWatchlistRules.length > 0 && <span className="absolute -right-1 -top-1 grid min-h-4 min-w-4 place-items-center rounded-full bg-[#d4f06b] px-1 text-[9px] font-bold text-[#213b30]">{Math.min(auctionWatchlistRules.length, 9)}</span>}</button>}
+      <NavigationAssistant auctions={auctions} listings={listings} dataReady={!dataLoading && !dataError} onNavigate={(destination) => { if (destination === 'dashboard') { openSellerStudio(); return } setSelectedId(null); setView(destination) }} onOpenAuction={(auction) => { setSelectedId(auction.id); setViewState('feed') }} onOpenListing={handleScoutOpenListing} onPrepareRule={prepareAuctionRule} currentUserId={currentUserId} auctionWatchlistRules={auctionWatchlistRules} onFeedback={(feedback) => void handleScoutFeedback(feedback)} onSupportRequest={handleScoutSupportRequest} signedIn={Boolean(session)} emailConfirmed={emailConfirmed} onSignIn={() => setAuthMode('signin')} />
       {view === 'watchlist' ? <main className="min-w-0 px-4 pb-24 pt-6 sm:px-6 lg:px-7 lg:pb-8 lg:pt-7"><AuctionWatchlistPage auctions={auctions} rules={auctionWatchlistRules} loading={watchlistLoading} error={watchlistError} savingId={watchlistSavingId} initialDraft={preparedWatchlistDraft} onSave={handleSaveAuctionRule} onRemove={handleRemoveAuctionRule} onOpenAuction={(auction) => setSelectedId(auction.id)} onRequestSignIn={() => setAuthMode('signin')} signedIn={Boolean(session)} emailConfirmed={emailConfirmed} /></main> : <main className="min-w-0 px-4 pb-24 pt-6 sm:px-6 lg:px-7 lg:pb-8 lg:pt-7">
         {session && !emailConfirmed && <div role="status" className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#ead9b0] bg-[#fff9e9] px-4 py-3 text-sm text-[#765b22]"><span>Confirm your email to bid, sell, message sellers, or place orders.</span><Button variant="secondary" onClick={() => void resendConfirmation()} className="min-h-8 rounded-lg px-3 text-xs">Resend confirmation</Button></div>}
         {authLoading ? <div className="grid min-h-72 place-items-center rounded-xl border border-[#e4eae5] bg-white text-sm text-[#849189]">Connecting to your account…</div> : dataError ? <div role="alert" className="mx-auto mt-12 max-w-lg rounded-xl border border-[#f0d7d2] bg-white p-6 text-center"><h1 className="font-display text-xl font-semibold text-[#263b33]">Marketplace data unavailable</h1><p className="mt-2 break-words text-sm text-[#7a8781]">{dataError}</p><Button variant="secondary" onClick={() => { setDataError(''); setLoadedUserId(null); setDataRetry((attempt) => attempt + 1) }} className="mt-4">Retry</Button></div> : dataLoading ? <div className="grid min-h-72 place-items-center rounded-xl border border-[#e4eae5] bg-white text-sm text-[#849189]">Loading marketplace data…</div> : selectedAuction ? <AuctionRoom auction={selectedAuction} userId={currentUserId} onBack={() => setSelectedId(null)} onBid={(amount) => handleBid(selectedAuction, amount)} onExpire={() => handleExpire(selectedAuction)} onNotice={showToast} onRoomUpdate={(patch) => updateRoom(selectedAuction.id, patch)} onVerdict={(decision) => handleVerdict(selectedAuction, decision)} /> : view === 'dashboard' ? <SellerDashboard auctions={sellerRows} userId={currentUserId} trustScore={trustScore} completedAuctions={completedAuctions} session={session} emailConfirmed={emailConfirmed} ownListings={ownListings} onRequestSignIn={() => setAuthMode('signin')} onListingCreated={handleListingCreated} onVerdict={handleVerdict} onNotice={showToast} /> : view === 'shop' ? <StorePage listings={listings} categories={categories} error={shopError} cartHas={(postId) => userCart.items.some((item) => item.postId === postId)} watchlistIds={watchlistIds} onToggleSaved={(postId) => void handleToggleSaved(postId)} onAdd={(listing) => void handleAddToCart(listing)} onOpenCart={() => setView('cart')} /> : view === 'cart' ? <ShoppingCartPage items={userCart.items} loading={userCart.loading} error={userCart.error} onShop={() => setView('shop')} onSetQuantity={userCart.setQuantity} onRemove={userCart.remove} onCheckout={handlePlaceOrder} onRefresh={userCart.refresh} /> : <GlobalFeed auctions={auctions} categories={categories} onOpen={(auction) => setSelectedId(auction.id)} />}
@@ -483,5 +529,7 @@ export default function MarketplaceApp() {
 
 
     <AnimatePresence>{toast && <motion.div role="status" initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 12 }} className={`fixed bottom-20 left-1/2 z-[60] flex w-[calc(100%-32px)] max-w-md -translate-x-1/2 items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium text-white shadow-xl lg:bottom-6 ${toast.kind === 'error' ? 'bg-[#ad473c]' : 'bg-[#274c3d]'}`}><span className="flex-1">{toast.message}</span><IconButton label="Dismiss notification" className="size-8 text-white hover:bg-white/15 hover:text-white" onClick={() => setToast(null)}><X size={15} /></IconButton></motion.div>}</AnimatePresence>
-  </div>
-}
+      {(selectedAuction || view === 'shop') && <aside style={{ right: 'max(0px, calc(50vw - 820px))' }} className="fixed top-[68px] hidden h-[calc(100vh-68px)] w-[270px] border-l border-[#e6ebe7] bg-[#f9faf9] xl:block"><BidAdvert auction={selectedAuction ?? auctions.filter((item) => item.status === 'ACTIVE').sort((a, b) => new Date(a.endsAt).getTime() - new Date(b.endsAt).getTime())[0] ?? null} onOpen={(auction) => { setSelectedId(auction.id); setViewState('feed') }} /></aside>}
+    </div>
+  }
+

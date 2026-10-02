@@ -17,7 +17,15 @@ function ListingCard({ listing, onAdd, inCart, busy, saved, onToggleSaved }: { l
 
 export function StorePage({ listings, categories, error, cartHas, watchlistIds, onToggleSaved, onAdd, onOpenCart }: { listings: MarketplaceListing[]; categories: string[]; error: string; cartHas: (postId: string) => boolean; watchlistIds: string[]; onToggleSaved: (postId: string) => void; onAdd: (listing: MarketplaceListing) => void; onOpenCart: () => void }) {
   const [category, setCategory] = useState('All')
-  const [search, setSearch] = useState('')
+  const [search, setSearch] = useState(() => {
+    try {
+      const target = localStorage.getItem('quickresell:store:search') ?? ''
+      localStorage.removeItem('quickresell:store:search')
+      return target
+    } catch {
+      return ''
+    }
+  })
   const [sort, setSort] = useState<'featured' | 'price'>('featured')
   const [savedOnly, setSavedOnly] = useState(false)
   const categoryOptions = ['All', ...categories]

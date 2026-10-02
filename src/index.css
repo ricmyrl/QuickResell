@@ -54,19 +54,20 @@
 }
 
 #root {
-  width: 1126px;
-  max-width: 100%;
-  margin: 0 auto;
-  text-align: center;
-  border-inline: 1px solid var(--border);
+  width: auto;
+  max-width: none;
+  margin: 0;
+  text-align: left;
+  border: 0;
   min-height: 100svh;
-  display: flex;
-  flex-direction: column;
+  display: block;
   box-sizing: border-box;
+  overflow-x: hidden;
 }
 
 body {
   margin: 0;
+  overflow-x: hidden;
 }
 
 h1,
@@ -135,7 +136,8 @@ body { min-width: 360px; min-height: 100vh; }
 button, input { font: inherit; }
 button { cursor: pointer; }
 ::selection { background: #d4f06b; color: #192724; }
-#root { width: auto; max-width: none; margin: 0; text-align: left; border: 0; min-height: 100svh; display: block; }
+#root { width: auto; max-width: none; margin: 0; text-align: left; border: 0; min-height: 100svh; display: block; overflow-x: hidden; }
+body { overflow-x: hidden; }
 .font-display { font-family: 'Space Grotesk', sans-serif; }
 .scrollbar-hidden { scrollbar-width: none; }
 .scrollbar-hidden::-webkit-scrollbar { display: none; }

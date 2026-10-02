@@ -13,7 +13,7 @@ type Props = {
   error: string
   savingId: string | null
   initialDraft: InitialRuleDraft | null
-  onSave: (auctionRoomId: string, draft: { maxBid: number; bidStep: number; autoBidEnabled: boolean; authorizationConfirmed: boolean }) => Promise<void>
+  onSave: (auctionRoomId: string, draft: { maxBid: number; bidStep: number; autoBidEnabled: boolean; authorizationConfirmed: boolean }) => Promise<{ emailNotified?: boolean } | void>
   onRemove: (auctionRoomId: string) => Promise<void>
   onOpenAuction: (auction: Auction) => void
   onRequestSignIn: () => void
@@ -35,6 +35,7 @@ function createDraft(rule?: AuctionWatchlistRule, initial?: InitialRuleDraft): R
 export function AuctionWatchlistPage({ auctions, rules, loading, error, savingId, initialDraft, onSave, onRemove, onOpenAuction, onRequestSignIn, signedIn, emailConfirmed }: Props) {
   const [search, setSearch] = useState('')
   const [drafts, setDrafts] = useState<Record<string, RuleDraft>>({})
+  const [scoutAlertMessage, setScoutAlertMessage] = useState<string | null>(null)
   const ruleByAuction = new Map(rules.map((rule) => [rule.auctionRoomId, rule]))
   const draftFor = (auctionId: string) => drafts[auctionId] ?? createDraft(ruleByAuction.get(auctionId), initialDraft?.auctionRoomId === auctionId ? initialDraft : undefined)
   const visibleAuctions = useMemo(() => {
@@ -64,7 +65,8 @@ export function AuctionWatchlistPage({ auctions, rules, loading, error, savingId
       return
     }
     if (draft.autoBidEnabled && !draft.confirmed) return
-    await onSave(auction.id, { maxBid, bidStep, autoBidEnabled: draft.autoBidEnabled, authorizationConfirmed: draft.confirmed })
+    const result = await onSave(auction.id, { maxBid, bidStep, autoBidEnabled: draft.autoBidEnabled, authorizationConfirmed: draft.confirmed })
+    setScoutAlertMessage(result?.emailNotified ? 'Scout alert email sent to your inbox.' : null)
     setDrafts((current) => ({ ...current, [auction.id]: { ...draft, confirmed: false } }))
   }
 
@@ -79,6 +81,7 @@ export function AuctionWatchlistPage({ auctions, rules, loading, error, savingId
     {!signedIn && <div className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#e8dfc8] bg-[#fffaf0] px-4 py-3"><p className="text-sm text-[#64573c]">Sign in and confirm your email to save watchlists and enable Scout bids.</p><Button variant="secondary" onClick={onRequestSignIn} className="min-h-9 px-3 text-xs">Sign in</Button></div>}
     {signedIn && !emailConfirmed && <div role="status" className="mb-5 rounded-xl border border-[#e8dfc8] bg-[#fffaf0] px-4 py-3 text-sm text-[#64573c]">Confirm your email before saving watchlist rules or enabling bids.</div>}
     {error && <div role="alert" className="mb-5 rounded-xl border border-[#efd7d2] bg-white px-4 py-3 text-sm text-[#a04b3f]">{error}</div>}
+    {scoutAlertMessage && <div role="status" className="mb-5 rounded-xl border border-[#dfe8dc] bg-[#edf7ee] px-4 py-3 text-sm font-medium text-[#2f5335]">{scoutAlertMessage}</div>}
 
     <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3">
       <SummaryMetric icon={<Eye size={16} />} label="Watching" value={rules.length.toString()} note="Auctions saved" />
