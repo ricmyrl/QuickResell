@@ -25,9 +25,11 @@ type ItemReactionControlProps = {
   children: ReactNode
   trailingAction?: ReactNode
   showTrigger?: boolean
+  containerClassName?: string
+  actionRowClassName?: string
 }
 
-export function ItemReactionControl({ listingId, reactionCount: initialCount, reactionCounts: initialReactionCounts, myReaction: initialReaction, session, emailConfirmed, onRequestSignIn, children, trailingAction, showTrigger = true }: ItemReactionControlProps) {
+export function ItemReactionControl({ listingId, reactionCount: initialCount, reactionCounts: initialReactionCounts, myReaction: initialReaction, session, emailConfirmed, onRequestSignIn, children, trailingAction, showTrigger = true, containerClassName, actionRowClassName }: ItemReactionControlProps) {
   const [open, setOpen] = useState(false)
   const [localResult, setLocalResult] = useState<{
     userId: string | undefined
@@ -88,7 +90,7 @@ export function ItemReactionControl({ listingId, reactionCount: initialCount, re
   }
 
   return <div
-    className="relative min-w-0"
+    className={`relative min-w-0 ${containerClassName ?? ''}`}
     onPointerDown={() => {
       suppressClick.current = false
       timer.current = setTimeout(() => { suppressClick.current = true; setOpen(true) }, 500)
@@ -106,7 +108,7 @@ export function ItemReactionControl({ listingId, reactionCount: initialCount, re
     onContextMenu={(event) => { event.preventDefault(); setOpen(true) }}
   >
     {children}
-    <div className="mt-2 flex min-h-10 items-center gap-2 border-t border-[#e5eae6] pt-2">
+    <div className={`mt-2 flex min-h-10 items-center gap-2 border-t border-[#e5eae6] pt-2 ${actionRowClassName ?? ''}`}>
     {showTrigger && <button
       type="button"
       aria-label={activeReaction ? `Your reaction: ${activeReaction.label}. Change reaction` : 'React to this item'}
