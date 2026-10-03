@@ -1,15 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 
-const currencyOptions = [
-  { code: 'USD', label: 'US dollar' }, { code: 'NGN', label: 'Nigerian naira' }, { code: 'GHS', label: 'Ghanaian cedi' },
-  { code: 'KES', label: 'Kenyan shilling' }, { code: 'ZAR', label: 'South African rand' }, { code: 'UGX', label: 'Ugandan shilling' },
-  { code: 'TZS', label: 'Tanzanian shilling' }, { code: 'RWF', label: 'Rwandan franc' }, { code: 'EUR', label: 'Euro' },
-  { code: 'GBP', label: 'British pound' }, { code: 'CAD', label: 'Canadian dollar' }, { code: 'AUD', label: 'Australian dollar' },
-  { code: 'NZD', label: 'New Zealand dollar' }, { code: 'INR', label: 'Indian rupee' }, { code: 'JPY', label: 'Japanese yen' },
-  { code: 'CNY', label: 'Chinese yuan' }, { code: 'BRL', label: 'Brazilian real' }, { code: 'MXN', label: 'Mexican peso' },
-  { code: 'CHF', label: 'Swiss franc' }, { code: 'SGD', label: 'Singapore dollar' }, { code: 'AED', label: 'UAE dirham' },
-]
-
 const regionCurrency: Record<string, string> = {
   NG: 'NGN', GH: 'GHS', KE: 'KES', ZA: 'ZAR', UG: 'UGX', TZ: 'TZS', RW: 'RWF',
   GB: 'GBP', CA: 'CAD', AU: 'AUD', NZ: 'NZD', IN: 'INR', JP: 'JPY', CN: 'CNY',
@@ -22,18 +12,15 @@ const regionCurrency: Record<string, string> = {
 type CurrencyContextValue = {
   currency: string
   displayCurrency: string
-  detectedCountry: string | null
   ratesReady: boolean
   ratesUpdatedAt: string | null
   rateError: string
-  setCurrency: (currency: string) => void
   formatUsd: (amount: number, fractionDigits?: number) => string
   localToUsd: (amount: number) => number | null
   usdToLocal: (amount: number) => number | null
 }
 
 const CurrencyContext = createContext<CurrencyContextValue | null>(null)
-const preferenceKey = 'quickresell:currency:v1'
 
 function browserRegion(): string | null {
   if (typeof navigator === 'undefined') return null
@@ -53,29 +40,8 @@ function localeCurrency(): string {
   return region ? regionCurrency[region] ?? 'USD' : 'USD'
 }
 
-function regionName(region: string | null): string | null {
-  if (!region || typeof navigator === 'undefined') return null
-  try {
-    return new Intl.DisplayNames(navigator.languages, { type: 'region' }).of(region) ?? region
-  } catch {
-    return region
-  }
-}
-
-function initialCurrency(): string {
-  if (typeof window === 'undefined') return 'USD'
-  try {
-    const saved = window.localStorage.getItem(preferenceKey)
-    if (saved && currencyOptions.some((option) => option.code === saved)) return saved
-  } catch {
-    return localeCurrency()
-  }
-  return localeCurrency()
-}
-
 export function CurrencyProvider({ children }: { children: ReactNode }) {
-  const [currency, setCurrencyState] = useState(initialCurrency)
-  const [detectedCountry] = useState(() => regionName(browserRegion()))
+  const [currency] = useState(localeCurrency)
   const [rates, setRates] = useState<Record<string, number>>({ USD: 1 })
   const [ratesUpdatedAt, setRatesUpdatedAt] = useState<string | null>(null)
   const [rateError, setRateError] = useState('')
@@ -106,16 +72,6 @@ export function CurrencyProvider({ children }: { children: ReactNode }) {
     return () => controller.abort()
   }, [])
 
-  const setCurrency = (nextCurrency: string) => {
-    if (!currencyOptions.some((option) => option.code === nextCurrency)) return
-    setCurrencyState(nextCurrency)
-    try {
-      window.localStorage.setItem(preferenceKey, nextCurrency)
-    } catch {
-      return
-    }
-  }
-
   const value = useMemo<CurrencyContextValue>(() => {
     const rate = rates[currency]
     const ratesReady = currency === 'USD' || (Number.isFinite(rate) && rate > 0)
@@ -126,11 +82,9 @@ export function CurrencyProvider({ children }: { children: ReactNode }) {
     return {
       currency,
       displayCurrency: activeCurrency,
-      detectedCountry,
       ratesReady,
       ratesUpdatedAt,
       rateError,
-      setCurrency,
       formatUsd: (amount, fractionDigits = 2) => new Intl.NumberFormat(locale, {
         style: 'currency',
         currency: activeCurrency,
@@ -140,7 +94,7 @@ export function CurrencyProvider({ children }: { children: ReactNode }) {
       localToUsd: (amount) => Number.isFinite(amount) && (ratesReady || currency === 'USD') ? amount / activeRate : null,
       usdToLocal: (amount) => Number.isFinite(amount) && (ratesReady || currency === 'USD') ? amount * activeRate : null,
     }
-  }, [currency, detectedCountry, rates, ratesUpdatedAt, rateError])
+  }, [currency, rates, ratesUpdatedAt, rateError])
 
   return <CurrencyContext.Provider value={value}>{children}</CurrencyContext.Provider>
 }
@@ -150,5 +104,3 @@ export function useCurrency(): CurrencyContextValue {
   if (!value) throw new Error('useCurrency must be used within CurrencyProvider.')
   return value
 }
-
-export { currencyOptions }
