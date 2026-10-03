@@ -41,7 +41,15 @@ type ApiPost = {
   user?: { id: string; displayName?: string | null; avatarUrl?: string | null; trustScore?: number }
 }
 
-type ApiCartItem = { id: string; postId: string; quantity: number; available: boolean; unitPriceCents: number; post: ApiPost }
+type ApiCartItem = {
+  id: string
+  postId: string
+  quantity: number
+  available: boolean
+  unitPriceCents: number
+  post: ApiPost
+  auction?: ShoppingCartItem['auction']
+}
 
 function normalizePost(post: ApiPost): MarketplaceListing {
   return {
@@ -59,7 +67,7 @@ function normalizePost(post: ApiPost): MarketplaceListing {
 }
 
 function normalizeItem(item: ApiCartItem): ShoppingCartItem {
-  return { id: item.id, postId: item.postId, quantity: item.quantity, available: item.available, unitPriceCents: item.unitPriceCents, post: normalizePost(item.post) }
+  return { id: item.id, postId: item.postId, quantity: item.quantity, available: item.available, unitPriceCents: item.unitPriceCents, post: normalizePost(item.post), auction: item.auction }
 }
 
 async function request<T>(path: string, init: RequestInit = {}, session?: Session | null): Promise<T> {

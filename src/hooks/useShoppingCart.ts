@@ -9,6 +9,9 @@ export function useShoppingCart(userId: string, authenticated: boolean) {
   const loading = authenticated && loadedUserId !== userId
   const error = cartError?.userId === userId ? cartError.message : ''
   const items = authenticated && serverCart.userId === userId ? serverCart.items : []
+  const hasActiveAuctionHolds = items.some((item) =>
+    item.auction?.status === 'ACTIVE' || item.auction?.status === 'PENDING_APPROVAL',
+  )
 
   useEffect(() => {
     let cancelled = false
@@ -27,6 +30,29 @@ export function useShoppingCart(userId: string, authenticated: boolean) {
     })
     return () => { cancelled = true }
   }, [userId, authenticated])
+
+  useEffect(() => {
+    if (!authenticated || !userId || !hasActiveAuctionHolds) return
+    let cancelled = false
+    const refreshAuctionHolds = async () => {
+      try {
+        const cart = await getCart()
+        if (!cancelled) {
+          setServerCart({ userId, items: cart })
+          setCartError(null)
+        }
+      } catch (caught) {
+        if (!cancelled) {
+          setCartError({ userId, message: caught instanceof Error ? caught.message : 'Could not refresh your auction cart.' })
+        }
+      }
+    }
+    const timer = window.setInterval(() => { void refreshAuctionHolds() }, 10_000)
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+    }
+  }, [userId, authenticated, hasActiveAuctionHolds])
 
   const add = async (listing: MarketplaceListing, quantity = 1) => {
     if (!authenticated) throw new Error('Sign in before adding items to your cart.')
@@ -49,7 +75,20 @@ export function useShoppingCart(userId: string, authenticated: boolean) {
   const checkout = async (paymentReference?: string): Promise<PurchaseOrder> => {
     if (!authenticated) throw new Error('Sign in before checking out.')
     const order = await placeCartOrder(paymentReference)
-    setServerCart({ userId, items: [] })
+    const purchasedPostIds = new Set(order.items.map((item) => item.postId))
+    setServerCart((current) => ({
+      userId,
+      items: (current.userId === userId ? current.items : []).filter((item) => !purchasedPostIds.has(item.postId)),
+    }))
+    try {
+      setServerCart({ userId, items: await getCart() })
+      setCartError(null)
+    } catch (caught) {
+      setCartError({
+        userId,
+        message: caught instanceof Error ? `Your order was placed, but the remaining cart could not be refreshed: ${caught.message}` : 'Your order was placed, but the remaining cart could not be refreshed.',
+      })
+    }
     return order
   }
 

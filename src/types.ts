@@ -82,6 +82,13 @@ export type ShoppingCartItem = {
   available: boolean
   unitPriceCents: number
   post: MarketplaceListing
+  auction?: {
+    roomId: string
+    status: AuctionStatus
+    endsAt: string
+    isHighestBidder: boolean
+    currentHighestBid: number
+  } | null
 }
 
 export type PurchaseOrder = {

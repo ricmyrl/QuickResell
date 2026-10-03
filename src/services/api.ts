@@ -37,6 +37,12 @@ export type ScoutChatContext = {
   listings: Array<{ title: string; category: string; location: string; price: number; quantityAvailable: number }>
 }
 export type ScoutChatReply = { reply: string; model: string }
+export type AccountProfile = {
+  displayName: string | null
+  email: string | null
+  preferredDormOrCampus: string | null
+  budgetPreference: number | null
+}
 
 export class ApiError extends Error {
   readonly status: number
@@ -211,4 +217,27 @@ export async function markNotificationRead(id: string, session?: Session | null)
 export async function markAllNotificationsRead(session?: Session | null): Promise<number> {
   const result = await request<{ updated: number }>('/notifications/read-all', { method: 'POST' }, session)
   return result.updated
+}
+
+export async function getAccountProfile(session?: Session | null): Promise<AccountProfile> {
+  const result = await request<{ profile: AccountProfile }>('/account', {}, session)
+  return result.profile
+}
+
+export async function updateAccountPreferences(
+  preferences: Pick<AccountProfile, 'preferredDormOrCampus' | 'budgetPreference'>,
+  session?: Session | null,
+): Promise<AccountProfile> {
+  const result = await request<{ profile: AccountProfile }>('/account', {
+    method: 'PATCH',
+    body: JSON.stringify(preferences),
+  }, session)
+  return result.profile
+}
+
+export async function deleteAccount(confirmation: string, session?: Session | null): Promise<void> {
+  await request<{ deleted: boolean }>('/account', {
+    method: 'DELETE',
+    body: JSON.stringify({ confirmation }),
+  }, session, false)
 }
