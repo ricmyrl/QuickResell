@@ -119,6 +119,8 @@ code {
   color-scheme: light;
   color: #192724;
   background: #f5f7f5;
+  --text: #192724;
+  --text-h: #192724;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
