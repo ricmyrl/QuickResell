@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import { Heart, MessageCircle, Reply, Send, X } from 'lucide-react'
 import type { Session } from '@supabase/supabase-js'
-import type { MarketplaceListing, ProductComment } from '../../types'
+import type { ProductComment } from '../../types'
 import { addProductComment, getProductComments, setProductCommentReaction } from '../../services/listingApi'
 import { useCurrency } from '../../lib/CurrencyContext'
 import { IconButton } from '../common/Button'
@@ -44,7 +44,7 @@ function CommentBubble({ comment, onReply, onToggleLike, busy, canReply = true }
 }
 
 export function ProductCommentsSheet({ listing, open, session, emailConfirmed, onClose, onRequestSignIn, onCountChange }: {
-  listing: MarketplaceListing
+  listing: { id: string; title: string; price: number; commentsCount?: number }
   open: boolean
   session: Session | null
   emailConfirmed: boolean

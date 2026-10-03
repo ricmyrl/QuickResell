@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ArrowLeft, ArrowUpRight, Clock3, Gavel, MapPin, ShieldCheck, Sparkles, Users } from 'lucide-react'
+import type { Session } from '@supabase/supabase-js'
+import { ArrowLeft, ArrowUpRight, Clock3, Gavel, MapPin, MessageCircle, ShieldCheck, Sparkles, Users } from 'lucide-react'
 import { motion } from 'framer-motion'
 import type { Auction, Bid } from '../../types'
 import { useCountdown } from '../../hooks/useCountdown'
@@ -9,11 +10,12 @@ import { Button } from '../common/Button'
 import { ImageLightbox } from '../common/ImageLightbox'
 import { TrustScoreBadge } from '../common/TrustScoreBadge'
 import { SellerVerdictModal } from '../dashboard/SellerVerdictModal'
+import { ProductCommentsSheet } from '../store/ProductCommentsSheet'
 import type { Verdict } from '../../types'
 import { useCurrency } from '../../lib/CurrencyContext'
 
-export function AuctionRoom({ auction, userId, onBack, onBid, onExpire, onNotice, onRoomUpdate, onVerdict }: {
-  auction: Auction; userId?: string; onBack: () => void; onBid: (amount: number) => Promise<void>; onExpire: () => Promise<void>
+export function AuctionRoom({ auction, userId, session, emailConfirmed, onRequestSignIn, onBack, onBid, onExpire, onNotice, onRoomUpdate, onVerdict }: {
+  auction: Auction; userId?: string; session: Session | null; emailConfirmed: boolean; onRequestSignIn: () => void; onBack: () => void; onBid: (amount: number) => Promise<void>; onExpire: () => Promise<void>
   onNotice: (message: string, kind?: 'success' | 'error') => void; onRoomUpdate: (patch: Partial<Auction>) => void
   onVerdict: (decision: Verdict) => Promise<void>
 }) {
@@ -25,7 +27,11 @@ export function AuctionRoom({ auction, userId, onBack, onBid, onExpire, onNotice
   const [hasClosed, setHasClosed] = useState(false)
   const [verdictOpen, setVerdictOpen] = useState(false)
   const [imageOpen, setImageOpen] = useState(false)
+  const [commentsOpen, setCommentsOpen] = useState(false)
+  const [commentsCount, setCommentsCount] = useState(0)
   const closeImage = useCallback(() => setImageOpen(false), [])
+  const closeComments = useCallback(() => setCommentsOpen(false), [])
+  const updateCommentsCount = useCallback((_postId: string, count: number) => setCommentsCount(count), [])
   const lastBidIds = useRef(new Set(auction.bids.map((bid) => bid.id)))
   const isSeller = userId === auction.sellerId
   const isActive = auction.status === 'ACTIVE' && !countdown.expired
@@ -56,7 +62,7 @@ export function AuctionRoom({ auction, userId, onBack, onBid, onExpire, onNotice
 
   return <motion.section className="min-w-0" initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }}><button type="button" onClick={onBack} className="mb-5 inline-flex items-center gap-2 text-sm font-semibold text-[#6f8078] hover:text-[#263b33]"><ArrowLeft size={16} />Back to the feed</button>
     <div className="grid gap-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(320px,.85fr)]"><div className="overflow-hidden rounded-[20px] border border-[#e4eae5] bg-white"><div className="relative aspect-[1.34/1] max-h-[530px] bg-[#e8eeea]">{auction.image && <button type="button" onClick={() => setImageOpen(true)} aria-label={`View ${auction.title} photo`} className="size-full"><img src={auction.image} alt={auction.title} className="h-full w-full bg-white object-contain" /></button>}<div className="pointer-events-none absolute left-4 top-4 flex gap-2"><LiveBadge />{auction.noReserve && <Badge className="bg-white text-[#536522]">No reserve</Badge>}</div></div>
-      <div className="p-5 sm:p-7"><div className="mb-3 flex flex-wrap items-center gap-2 text-xs text-[#819087]"><span className="font-semibold uppercase tracking-[.1em]">{auction.category}</span><span>·</span><span className="inline-flex items-center gap-1"><MapPin size={12} />{auction.location}</span></div><h1 className="font-display text-[27px] font-semibold leading-tight text-[#1c2b26]">{auction.title}</h1><p className="mt-3 max-w-2xl text-sm leading-6 text-[#718078]">{auction.description}</p><div className="mt-6 flex flex-wrap items-center justify-between gap-4 border-t border-[#edf0ed] pt-5"><div className="flex items-center gap-3">{auction.seller.avatarUrl && <img src={auction.seller.avatarUrl} alt="" className="size-10 rounded-full object-cover" />}<div><p className="text-sm font-semibold text-[#263b33]">{auction.seller.displayName}</p><TrustScoreBadge score={auction.seller.trustScore} completedAuctions={auction.seller.completedAuctions} compact /></div></div><div className="flex items-center gap-1.5 text-xs text-[#6d7c74]"><ShieldCheck size={15} className="text-[#5b8a71]" />Public room · seller accountability</div></div></div></div>
+      <div className="p-5 sm:p-7"><div className="mb-3 flex flex-wrap items-center gap-2 text-xs text-[#819087]"><span className="font-semibold uppercase tracking-[.1em]">{auction.category}</span><span>·</span><span className="inline-flex items-center gap-1"><MapPin size={12} />{auction.location}</span></div><h1 className="font-display text-[27px] font-semibold leading-tight text-[#1c2b26]">{auction.title}</h1><p className="mt-3 max-w-2xl text-sm leading-6 text-[#718078]">{auction.description}</p>{isActive && <button type="button" onClick={() => setCommentsOpen(true)} className="mt-4 inline-flex min-h-10 items-center gap-2 rounded-full border border-[#dfe8e1] bg-[#f7faf7] px-4 text-xs font-semibold text-[#456b54] transition hover:border-[#b8cbbd] hover:bg-[#eef5ee]"><MessageCircle size={15} />Join the discussion{commentsCount > 0 && <span className="rounded-full bg-white px-2 py-0.5 text-[10px] text-[#61766a]">{commentsCount}</span>}</button>}<div className="mt-6 flex flex-wrap items-center justify-between gap-4 border-t border-[#edf0ed] pt-5"><div className="flex items-center gap-3">{auction.seller.avatarUrl && <img src={auction.seller.avatarUrl} alt="" className="size-10 rounded-full object-cover" />}<div><p className="text-sm font-semibold text-[#263b33]">{auction.seller.displayName}</p><TrustScoreBadge score={auction.seller.trustScore} completedAuctions={auction.seller.completedAuctions} compact /></div></div><div className="flex items-center gap-1.5 text-xs text-[#6d7c74]"><ShieldCheck size={15} className="text-[#5b8a71]" />Public room · seller accountability</div></div></div></div>
 
       <aside className="flex min-h-[600px] flex-col overflow-hidden rounded-[20px] border border-[#e4eae5] bg-white"><div className="flex items-start justify-between border-b border-[#edf0ed] px-5 py-4"><div><p className="text-[10px] font-bold uppercase tracking-[.13em] text-[#819087]">Live room</p><h2 className="font-display mt-1 text-lg font-semibold text-[#263b33]">Bidding floor</h2></div><span className="inline-flex items-center gap-1.5 rounded-full bg-[#f5f7f5] px-2.5 py-1.5 text-xs font-semibold text-[#62726a]"><Users size={13} />{bids.length} bids</span></div>
         <div className="px-5 py-5"><div className="flex items-end justify-between gap-4"><div className="flex flex-col gap-2"><p className="text-xs font-medium text-[#829089]">Highest bid</p><p className="font-display text-[38px] font-bold leading-[0.9] tracking-tight text-[#20352d]">{currency.format(auction.currentHighestBid)}</p></div><div className={`mb-1 flex items-center gap-1.5 rounded-lg px-2.5 py-2 text-sm font-bold tabular-nums ${countdown.remaining < 60_000 ? 'bg-[#fff0ed] text-[#c7473c]' : 'bg-[#f0f4ee] text-[#425b4d]'}`}><Clock3 size={15} />{clock}</div></div><p className="mt-1 text-xs text-[#85918a]">{bids.length} bids · starts at {currency.format(auction.startingPrice)}</p><div className="mt-5 grid grid-cols-3 gap-2">{[5, 10, 20].map((increment) => <Button key={increment} variant="secondary" disabled={!isActive || bidding || isSeller} onClick={() => void bidIncrement(increment)} className="min-h-12 flex-col gap-0 rounded-xl px-2"><span className="text-sm font-bold">+{currency.format(increment)}</span><span className="text-[10px] font-medium text-[#8a9690]">{currency.format(auction.currentHighestBid + increment)}</span></Button>)}</div><Button disabled={!isActive || bidding || isSeller} onClick={() => void bidIncrement(20)} icon={<Gavel size={15} />} className="mt-2.5 w-full rounded-xl py-3">{isSeller ? 'Sellers can’t bid here' : bidding ? 'Placing bid…' : `Bid ${currency.format(auction.currentHighestBid + 20)}`}</Button>{countdown.remaining > 0 && countdown.remaining <= 10_000 && <p className="mt-2 text-center text-[11px] font-medium text-[#c7473c]">A bid in the final 10 seconds extends the clock by 30 seconds.</p>}</div>
@@ -66,5 +72,6 @@ export function AuctionRoom({ auction, userId, onBack, onBid, onExpire, onNotice
       </aside></div>
     <SellerVerdictModal auction={auction} open={verdictOpen && auction.status === 'PENDING_APPROVAL'} onClose={() => setVerdictOpen(false)} onSubmit={async (decision) => { await onVerdict(decision); setVerdictOpen(false) }} />
     {imageOpen && auction.image && <ImageLightbox src={auction.image} alt={auction.title} onClose={closeImage} />}
+    {commentsOpen && <ProductCommentsSheet listing={{ id: auction.postId, title: auction.title, price: auction.startingPrice, commentsCount }} open session={session} emailConfirmed={emailConfirmed} onClose={closeComments} onRequestSignIn={onRequestSignIn} onCountChange={updateCommentsCount} />}
   </motion.section>
 }
