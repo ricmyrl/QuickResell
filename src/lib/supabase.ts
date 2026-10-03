@@ -1,10 +1,7 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 
-const supabaseUrl = import.meta.env.NEXT_PUBLIC_SUPABASE_URL ?? import.meta.env.VITE_SUPABASE_URL
-const supabaseAnonKey = import.meta.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
-  ?? import.meta.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-  ?? import.meta.env.VITE_SUPABASE_ANON_KEY
-  ?? import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY ?? import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY
 
 if (import.meta.env.PROD && (!supabaseUrl || !supabaseAnonKey)) {
   throw new Error('Supabase URL and publishable key must be configured for production.')
