@@ -1,7 +1,8 @@
 import type { Session } from '@supabase/supabase-js'
 import { useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
-import type { ListingReactionType } from '../../types'
+import { Smile } from 'lucide-react'
+import type { ListingReactionCounts, ListingReactionType } from '../../types'
 import { setListingReaction } from '../../services/listingApi'
 
 const reactionOptions: Array<{ type: ListingReactionType; emoji: string; label: string }> = [
@@ -16,20 +17,23 @@ const reactionOptions: Array<{ type: ListingReactionType; emoji: string; label: 
 type ItemReactionControlProps = {
   listingId: string
   reactionCount: number
+  reactionCounts?: ListingReactionCounts
   myReaction: ListingReactionType | null
   session: Session | null
   emailConfirmed: boolean
   onRequestSignIn: () => void
   children: ReactNode
+  trailingAction?: ReactNode
 }
 
-export function ItemReactionControl({ listingId, reactionCount: initialCount, myReaction: initialReaction, session, emailConfirmed, onRequestSignIn, children }: ItemReactionControlProps) {
+export function ItemReactionControl({ listingId, reactionCount: initialCount, reactionCounts: initialReactionCounts, myReaction: initialReaction, session, emailConfirmed, onRequestSignIn, children, trailingAction }: ItemReactionControlProps) {
   const [open, setOpen] = useState(false)
   const [localResult, setLocalResult] = useState<{
     userId: string | undefined
     initialCount: number
     initialReaction: ListingReactionType | null
     reactionCount: number
+    reactionCounts: ListingReactionCounts
     reaction: ListingReactionType | null
   } | null>(null)
   const [saving, setSaving] = useState(false)
@@ -43,6 +47,7 @@ export function ItemReactionControl({ listingId, reactionCount: initialCount, my
       ? localResult
       : null
   const reactionCount = activeLocalResult?.reactionCount ?? initialCount
+  const reactionCounts = activeLocalResult?.reactionCounts ?? initialReactionCounts
   const myReaction = activeLocalResult ? activeLocalResult.reaction : initialReaction
   const activeReaction = reactionOptions.find((option) => option.type === myReaction)
 
@@ -71,6 +76,7 @@ export function ItemReactionControl({ listingId, reactionCount: initialCount, my
         initialReaction,
         reaction: result.reaction,
         reactionCount: result.reactionCount,
+        reactionCounts: result.reactionCounts,
       })
       setOpen(false)
     } catch (reactionError) {
@@ -99,11 +105,11 @@ export function ItemReactionControl({ listingId, reactionCount: initialCount, my
     onContextMenu={(event) => { event.preventDefault(); setOpen(true) }}
   >
     {children}
-    <div className="mt-2 rounded-lg border border-[#e5eae6] bg-white px-3 py-1.5">
-    <div className="relative flex min-w-0 items-center gap-2">
+    <div className="mt-2 flex min-h-10 items-center gap-2 border-t border-[#e5eae6] pt-2">
     <button
       type="button"
       aria-label={activeReaction ? `Your reaction: ${activeReaction.label}. Change reaction` : 'React to this item'}
+      title={activeReaction ? activeReaction.label : 'React'}
       aria-expanded={open}
       onClick={() => {
         if (suppressClick.current) {
@@ -113,18 +119,17 @@ export function ItemReactionControl({ listingId, reactionCount: initialCount, my
         setOpen((value) => !value)
       }}
       disabled={saving}
-      className="inline-flex min-h-9 items-center gap-1.5 rounded-full border border-[#e5ebe6] bg-white px-3 text-xs font-semibold text-[#52685d] transition hover:border-[#bfd0c3] hover:text-[#315f49] disabled:opacity-60"
+      className="inline-flex min-h-9 items-center gap-1.5 rounded-lg px-2.5 text-sm font-semibold text-[#52685d] transition hover:bg-[#f2f6f2] hover:text-[#315f49] disabled:opacity-60"
     >
-      <span aria-hidden="true">{activeReaction?.emoji ?? '＋'}</span>
-      <span>{activeReaction?.label ?? 'React'}</span>
+      {activeReaction ? <span aria-hidden="true" className="text-lg leading-none">{activeReaction.emoji}</span> : <Smile size={18} aria-hidden="true" />}
       {reactionCount > 0 && <span className="tabular-nums text-[#849189]">{reactionCount}</span>}
     </button>
     {open && <div role="group" aria-label="Choose a reaction" className="absolute bottom-full left-0 z-30 mb-2 flex gap-1 rounded-full border border-[#e5ebe6] bg-white p-1.5 shadow-[0_8px_28px_rgba(30,55,43,.16)]">
-      {reactionOptions.map((option) => <button key={option.type} type="button" aria-label={option.label} title={option.label} disabled={saving} onClick={() => void chooseReaction(option.type)} className={`grid size-9 place-items-center rounded-full text-xl transition hover:-translate-y-1 hover:bg-[#f1f6f1] disabled:opacity-50 ${myReaction === option.type ? 'bg-[#eaf4ed]' : ''}`}>{option.emoji}</button>)}
+      {reactionOptions.map((option) => <button key={option.type} type="button" aria-label={`${option.label}: ${reactionCounts?.[option.type] ?? 0}`} title={`${option.label}: ${reactionCounts?.[option.type] ?? 0}`} disabled={saving} onClick={() => void chooseReaction(option.type)} className={`flex h-9 min-w-9 items-center justify-center gap-1 rounded-full px-1.5 text-base transition hover:-translate-y-1 hover:bg-[#f1f6f1] disabled:opacity-50 ${myReaction === option.type ? 'bg-[#eaf4ed]' : ''}`}><span>{option.emoji}</span><span className="text-[10px] font-semibold tabular-nums text-[#73817a]">{reactionCounts?.[option.type] ?? 0}</span></button>)}
       <button type="button" aria-label="Close reactions" onClick={() => setOpen(false)} className="ml-1 grid size-9 place-items-center rounded-full text-sm text-[#73817a] hover:bg-[#f1f6f1]">×</button>
     </div>}
     {error && <span role="alert" className="text-[10px] text-[#b44538]">{error}</span>}
-    </div>
+    {trailingAction}
     </div>
   </div>
 }

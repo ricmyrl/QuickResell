@@ -27,6 +27,7 @@ export type Auction = {
   bids: Bid[]
   noReserve?: boolean
   reactionCount?: number
+  reactionCounts?: ListingReactionCounts
   myReaction?: ListingReactionType | null
 }
 
@@ -55,12 +56,14 @@ export type MarketplaceListing = {
   longitude?: number | null
   commentsCount?: number
   reactionCount?: number
+  reactionCounts?: ListingReactionCounts
   myReaction?: ListingReactionType | null
   image: string
   seller: { id: string; displayName: string; avatarUrl?: string | null; trustScore: number; isCampusVerified?: boolean }
 }
 
 export type ListingReactionType = 'LIKE' | 'LOVE' | 'HAHA' | 'WOW' | 'SAD' | 'ANGRY'
+export type ListingReactionCounts = Record<ListingReactionType, number>
 
 export type ProductComment = {
   id: string

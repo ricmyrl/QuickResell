@@ -1,6 +1,6 @@
 import type { Session } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabase'
-import type { Auction, AuctionWatchlistRule, Bid, ListingReactionType, NotificationItem, Verdict } from '../types'
+import type { Auction, AuctionWatchlistRule, Bid, ListingReactionCounts, ListingReactionType, NotificationItem, Verdict } from '../types'
 
 const pageHostApiUrl = typeof window !== 'undefined' && window.location.protocol === 'http:'
   ? `http://${window.location.hostname}:3000/api`
@@ -18,7 +18,7 @@ type ApiBid = { id: string; amount: number; createdAt: string; bidder?: { id: st
 type ApiAuctionRoom = {
   id: string; postId: string; sellerId: string; currentHighestBid: number; highestBidderId: string | null
   isPublic: boolean; reservePrice?: number | null; status: Auction['status']; endsAt: string
-  post?: { id: string; title: string; description?: string | null; price: number; locationCampus?: string | null; category?: { name: string }; images?: { url: string }[]; _count?: { listingReactions: number }; listingReactions?: Array<{ type: ListingReactionType }> }
+  post?: { id: string; title: string; description?: string | null; price: number; locationCampus?: string | null; category?: { name: string }; images?: { url: string }[]; _count?: { listingReactions: number }; listingReactions?: Array<{ type: ListingReactionType }>; reactionCounts?: ListingReactionCounts }
   seller?: { id: string; displayName?: string | null; avatarUrl?: string | null; trustScore?: number; completedAuctions?: number }
   bids?: ApiBid[]
 }
@@ -44,6 +44,7 @@ function normalizeRoom(room: ApiAuctionRoom): Auction {
     category: room.post?.category?.name ?? 'Uncategorized', location: room.post?.locationCampus ?? 'Location not provided',
     image: room.post?.images?.[0]?.url ?? '',
     reactionCount: room.post?._count?.listingReactions ?? 0,
+    reactionCounts: room.post?.reactionCounts,
     myReaction: room.post?.listingReactions?.[0]?.type ?? null,
     startingPrice: room.post?.price ?? 0, currentHighestBid: room.currentHighestBid,
     endsAt: room.endsAt, status: room.status, isPublic: room.isPublic, reservePrice: room.reservePrice,

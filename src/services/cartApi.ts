@@ -1,6 +1,6 @@
 import type { Session } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabase'
-import type { ListingReactionType, MarketplaceListing, PurchaseOrder, ShoppingCartItem } from '../types'
+import type { ListingReactionCounts, ListingReactionType, MarketplaceListing, PurchaseOrder, ShoppingCartItem } from '../types'
 
 const pageHostApiUrl = typeof window !== 'undefined' && window.location.protocol === 'http:'
   ? `http://${window.location.hostname}:3000/api`
@@ -24,6 +24,7 @@ type ApiPost = {
   id: string; title: string; description?: string | null; price: number; originalPrice?: number | null
   quantityAvailable: number; locationCampus?: string | null; latitude?: number | null; longitude?: number | null
   listingReactions?: Array<{ type: ListingReactionType }>
+  reactionCounts?: ListingReactionCounts
   _count?: { comments: number; listingReactions?: number }
   category?: { name: string }
   images?: Array<{ url: string }>
@@ -40,6 +41,7 @@ function normalizePost(post: ApiPost): MarketplaceListing {
     latitude: post.latitude, longitude: post.longitude,
     commentsCount: post._count?.comments ?? 0,
     reactionCount: post._count?.listingReactions ?? 0,
+    reactionCounts: post.reactionCounts,
     myReaction: post.listingReactions?.[0]?.type ?? null,
     image: post.images?.[0]?.url ?? '',
     seller: { id: post.user?.id ?? '', displayName: post.user?.displayName ?? '', avatarUrl: post.user?.avatarUrl, trustScore: post.user?.trustScore ?? 0 },

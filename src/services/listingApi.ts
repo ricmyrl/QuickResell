@@ -1,6 +1,6 @@
 import type { Session } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabase'
-import type { ListingReactionType, MarketplaceListing, ProductComment } from '../types'
+import type { ListingReactionCounts, ListingReactionType, MarketplaceListing, ProductComment } from '../types'
 import type { Coordinates } from '../lib/geolocation'
 
 const pageHostApiUrl = typeof window !== 'undefined' && window.location.protocol === 'http:'
@@ -43,6 +43,7 @@ type ApiListing = {
   latitude?: number | null
   longitude?: number | null
   _count?: { listingReactions?: number }
+  reactionCounts?: ListingReactionCounts
   listingReactions?: Array<{ type: ListingReactionType }>
   category?: { name: string }
   images?: Array<{ url: string }>
@@ -62,6 +63,7 @@ function normalizeListing(listing: ApiListing): MarketplaceListing {
     latitude: listing.latitude,
     longitude: listing.longitude,
     reactionCount: listing._count?.listingReactions ?? 0,
+    reactionCounts: listing.reactionCounts,
     myReaction: listing.listingReactions?.[0]?.type ?? null,
     image: listing.images?.[0]?.url ?? '',
     seller: {
@@ -229,8 +231,8 @@ export async function setListingReaction(
   listingId: string,
   reaction: ListingReactionType | null,
   session: Session,
-): Promise<{ reaction: ListingReactionType | null; reactionCount: number }> {
-  return apiRequest<{ reaction: ListingReactionType | null; reactionCount: number }>(
+): Promise<{ reaction: ListingReactionType | null; reactionCount: number; reactionCounts: ListingReactionCounts }> {
+  return apiRequest<{ reaction: ListingReactionType | null; reactionCount: number; reactionCounts: ListingReactionCounts }>(
     `/listings/${encodeURIComponent(listingId)}/reaction`,
     session,
     reaction
