@@ -26,7 +26,7 @@ function CommentBubble({ comment, onReply, onToggleLike, busy, canReply = true }
   const name = comment.user.displayName?.trim() || 'QuickResell member'
   return <article className="flex items-start gap-2.5">
     {comment.user.avatarUrl
-      ? <img src={comment.user.avatarUrl} alt="" className="mt-0.5 size-9 shrink-0 rounded-full bg-[#edf1ed] object-cover" />
+      ? <img src={comment.user.avatarUrl} alt="" className="mt-0.5 size-9 shrink-0 rounded-full bg-[#edf1ed] object-cover" loading="lazy" decoding="async" />
       : <span aria-hidden="true" className="mt-0.5 grid size-9 shrink-0 place-items-center rounded-full bg-[#e8f0e9] text-[11px] font-bold text-[#456555]">{initials(name)}</span>}
     <div className="min-w-0">
       <div className="max-w-full rounded-2xl bg-[#f0f2f5] px-3.5 py-2.5">
@@ -182,7 +182,7 @@ export function ProductCommentsSheet({ listing, open, session, emailConfirmed, o
           : !emailConfirmed ? <p role="status" className="text-xs text-[#84672c]">Confirm your email before commenting.</p>
             : <div className="flex items-end gap-2.5">
               {session.user.user_metadata.avatar_url
-                ? <img src={session.user.user_metadata.avatar_url} alt="" className="mb-1 size-9 shrink-0 rounded-full bg-[#edf1ed] object-cover" />
+                ? <img src={session.user.user_metadata.avatar_url} alt="" className="mb-1 size-9 shrink-0 rounded-full bg-[#edf1ed] object-cover" loading="lazy" decoding="async" />
                 : <span aria-hidden="true" className="mb-1 grid size-9 shrink-0 place-items-center rounded-full bg-[#e8f0e9] text-[11px] font-bold text-[#456555]">{initials(displayName)}</span>}
               <label className="min-w-0 flex-1">
                 <span className="sr-only">Write a comment</span>

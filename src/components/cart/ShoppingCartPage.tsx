@@ -1,9 +1,29 @@
 import { useState } from 'react'
-import { ArrowLeft, ArrowRight, CheckCircle2, ChevronDown, CreditCard, LoaderCircle, LockKeyhole, MapPin, PackageCheck, ShieldCheck, ShoppingCart, Trash2 } from 'lucide-react'
+import { ArrowLeft, ArrowRight, CheckCircle2, ChevronDown, Clock3, CreditCard, LoaderCircle, LockKeyhole, MapPin, PackageCheck, ShieldCheck, ShoppingCart, Trash2 } from 'lucide-react'
 import { motion } from 'framer-motion'
-import type { PurchaseOrder, ShoppingCartItem } from '../../types'
+import type { AuctionStatus, PurchaseOrder, ShoppingCartItem } from '../../types'
+import { useCountdown } from '../../hooks/useCountdown'
 import { Button } from '../common/Button'
 import { useCurrency } from '../../lib/CurrencyContext'
+
+function AuctionCartCountdown({ endsAt, status }: { endsAt: string; status: AuctionStatus }) {
+  const countdown = useCountdown(endsAt)
+  const timeRemaining = countdown.days > 0
+    ? `${countdown.days}d ${String(countdown.hours).padStart(2, '0')}h ${String(countdown.minutes).padStart(2, '0')}m`
+    : `${String(countdown.hours).padStart(2, '0')}:${String(countdown.minutes).padStart(2, '0')}:${String(countdown.seconds).padStart(2, '0')}`
+
+  if (status !== 'ACTIVE') {
+    return <span className="inline-flex items-center gap-1.5 rounded-lg border border-[#e5e8e5] bg-white/75 px-2 py-1 text-[10px] font-semibold text-[#707c75]">
+      <Clock3 size={12} />
+      {status === 'PENDING_APPROVAL' ? 'Timer ended · awaiting seller decision' : status === 'SOLD' ? 'Auction won' : status === 'REJECTED' ? 'Auction closed · not sold' : 'Auction ended'}
+    </span>
+  }
+
+  return <span role="timer" aria-label={countdown.expired ? 'Auction timer ended' : `${timeRemaining} remaining in this auction`} className={`inline-flex items-center gap-1.5 rounded-lg border px-2 py-1 text-[10px] font-bold tabular-nums ${countdown.expired ? 'border-[#f0d7d2] bg-[#fff5f2] text-[#a34237]' : 'border-[#e6eae5] bg-white/75 text-[#53665a]'}`}>
+    <Clock3 size={12} />
+    {countdown.expired ? 'Timer ended · awaiting result' : `${timeRemaining} left`}
+  </span>
+}
 
 export function ShoppingCartPage({ items, loading, error, onShop, onSetQuantity, onRemove, onCheckout, onRefresh }: {
   items: ShoppingCartItem[]
@@ -76,7 +96,7 @@ export function ShoppingCartPage({ items, loading, error, onShop, onSetQuantity,
           </div>
           <div className="max-h-48 space-y-3 overflow-y-auto pr-1">
             {checkoutItems.map((item) => <div key={item.postId} className="flex items-center gap-3">
-              <img src={item.post.image} alt="" className="size-11 rounded-xl bg-[#f0f3f0] object-cover" />
+              <img src={item.post.image} alt="" className="size-11 rounded-xl bg-[#f0f3f0] object-cover" loading="lazy" decoding="async" />
               <div className="min-w-0 flex-1"><p className="truncate text-xs font-semibold text-[#34483b]">{item.post.title}</p><p className="mt-0.5 text-[11px] text-[#87938c]">Qty {item.quantity}</p></div>
               <span className="text-xs font-semibold text-[#405549]">{currency.format(item.unitPriceCents * item.quantity / 100)}</span>
             </div>)}
@@ -130,13 +150,13 @@ export function ShoppingCartPage({ items, loading, error, onShop, onSetQuantity,
             ? 'You’re leading · locked until the auction timer ends'
             : 'Bidding active · locked until the auction ends'
       return <article key={item.postId} aria-disabled={lockedAuction} className={`grid grid-cols-[92px_minmax(0,1fr)] gap-3 p-4 transition-opacity sm:grid-cols-[132px_minmax(0,1fr)_112px] sm:gap-4 sm:p-5 ${lockedAuction ? 'bg-[#f5f6f5] opacity-55 grayscale' : ''}`}>
-        <img src={item.post.image} alt={item.post.title} className="h-[92px] w-[92px] rounded-xl object-cover sm:h-[120px] sm:w-[132px]" />
+        <img src={item.post.image} alt={item.post.title} className="h-[92px] w-[92px] rounded-xl object-cover sm:h-[120px] sm:w-[132px]" loading="lazy" decoding="async" />
         <div className="min-w-0">
           <h3 className="font-display text-sm font-semibold leading-5 text-[#2b4036] sm:text-base">{item.post.title}</h3>
           <p className="mt-1 line-clamp-1 text-xs text-[#819087]">Sold by {item.post.seller.displayName} · {item.post.location}</p>
           <div className="mt-2 flex items-center gap-1.5 text-[11px] text-[#6d816f]"><ShieldCheck size={12} />{Math.round(item.post.seller.trustScore)} seller trust</div>
           {item.auction
-            ? <p className="mt-2 text-[10px] font-semibold text-[#748279]">{lockMessage}</p>
+            ? <div className="mt-2 flex flex-wrap items-center gap-2"><span className="text-[10px] font-semibold text-[#748279]">{lockMessage}</span>{lockedAuction && <AuctionCartCountdown endsAt={item.auction.endsAt} status={item.auction.status} />}</div>
             : <p className="mt-2 text-[10px] text-[#849189]">{item.available ? `${item.post.quantityAvailable} available` : 'Currently unavailable'}</p>}
           <div className="mt-3 flex flex-wrap items-center gap-3">
             {item.auction
