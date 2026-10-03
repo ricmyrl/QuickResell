@@ -26,6 +26,8 @@ export type Auction = {
   highestBidderId?: string | null
   bids: Bid[]
   noReserve?: boolean
+  reactionCount?: number
+  myReaction?: ListingReactionType | null
 }
 
 export type AuctionWatchlistRule = {
@@ -52,9 +54,13 @@ export type MarketplaceListing = {
   latitude?: number | null
   longitude?: number | null
   commentsCount?: number
+  reactionCount?: number
+  myReaction?: ListingReactionType | null
   image: string
   seller: { id: string; displayName: string; avatarUrl?: string | null; trustScore: number; isCampusVerified?: boolean }
 }
+
+export type ListingReactionType = 'LIKE' | 'LOVE' | 'HAHA' | 'WOW' | 'SAD' | 'ANGRY'
 
 export type ProductComment = {
   id: string

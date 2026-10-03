@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ArrowLeft, CheckCircle2, ChevronDown, LoaderCircle, MapPin, PackageCheck, ShieldCheck, ShoppingCart, Trash2 } from 'lucide-react'
+import { ArrowLeft, ArrowRight, CheckCircle2, ChevronDown, CreditCard, LoaderCircle, LockKeyhole, MapPin, PackageCheck, ShieldCheck, ShoppingCart, Trash2 } from 'lucide-react'
 import { motion } from 'framer-motion'
 import type { PurchaseOrder, ShoppingCartItem } from '../../types'
 import { Button } from '../common/Button'
@@ -21,6 +21,7 @@ export function ShoppingCartPage({ items, loading, error, onShop, onSetQuantity,
   const [workingId, setWorkingId] = useState<string | null>(null)
   const [notice, setNotice] = useState('')
   const [order, setOrder] = useState<PurchaseOrder | null>(null)
+  const [checkoutOpen, setCheckoutOpen] = useState(false)
   const subtotalCents = items.reduce((sum, item) => sum + item.unitPriceCents * item.quantity, 0)
   const unavailableCount = items.filter((item) => !item.available).length
 
@@ -37,11 +38,78 @@ export function ShoppingCartPage({ items, loading, error, onShop, onSetQuantity,
     finally { setWorkingId(null) }
   }
   const submitOrder = async () => {
+    if (!checkoutOpen) {
+      setCheckoutOpen(true)
+      return
+    }
     setBusy(true); setNotice('')
     try { setOrder(await onCheckout()) }
     catch (caught) { setNotice(caught instanceof Error ? caught.message : 'Your order could not be placed.') }
     finally { setBusy(false) }
   }
+
+  if (checkoutOpen) return <section className="mx-auto max-w-[920px] py-5 sm:py-10">
+    <button type="button" onClick={() => setCheckoutOpen(false)} className="mb-6 inline-flex items-center gap-2 text-sm font-semibold text-[#6f8078] transition hover:text-[#263b33]">
+      <ArrowLeft size={16} />Back to cart
+    </button>
+    <div className="grid overflow-hidden rounded-[24px] border border-[#e2e9e3] bg-white shadow-[0_24px_80px_rgba(31,54,43,.08)] md:grid-cols-[1.1fr_.9fr]">
+      <div className="p-6 sm:p-9">
+        <div className="flex size-12 items-center justify-center rounded-2xl bg-[#d4f06b] text-[#253b32]"><CreditCard size={22} /></div>
+        <p className="mt-6 text-[11px] font-bold uppercase tracking-[.16em] text-[#658371]">Secure checkout</p>
+        <h1 className="font-display mt-2 text-3xl font-semibold tracking-[-.03em] text-[#20372d]">Review your payment</h1>
+        <p className="mt-2 max-w-md text-sm leading-6 text-[#7b8880]">You’ll complete payment in Paystack’s secure checkout. Your card details are entered directly with Paystack and aren’t stored by QuickResell.</p>
+
+        <div className="mt-7 rounded-2xl border border-[#e8eee9] bg-[#f8faf8] p-4">
+          <div className="flex items-center gap-3">
+            <span className="grid size-10 place-items-center rounded-xl bg-white text-[#315f49] shadow-sm"><LockKeyhole size={17} /></span>
+            <div><p className="text-sm font-semibold text-[#30483a]">Protected by Paystack</p><p className="mt-0.5 text-xs text-[#829087]">Encrypted payment processing</p></div>
+            <span className="ml-auto rounded-full bg-[#e8f4eb] px-2.5 py-1 text-[10px] font-bold uppercase tracking-[.08em] text-[#477358]">Secure</span>
+          </div>
+        </div>
+
+        <div className="mt-7 border-t border-[#edf0ed] pt-5">
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-[#34483b]">Items ({items.reduce((sum, item) => sum + item.quantity, 0)})</h2>
+            <button type="button" onClick={() => setCheckoutOpen(false)} className="text-xs font-semibold text-[#55765f] hover:underline">Edit cart</button>
+          </div>
+          <div className="max-h-48 space-y-3 overflow-y-auto pr-1">
+            {items.map((item) => <div key={item.postId} className="flex items-center gap-3">
+              <img src={item.post.image} alt="" className="size-11 rounded-xl bg-[#f0f3f0] object-cover" />
+              <div className="min-w-0 flex-1"><p className="truncate text-xs font-semibold text-[#34483b]">{item.post.title}</p><p className="mt-0.5 text-[11px] text-[#87938c]">Qty {item.quantity}</p></div>
+              <span className="text-xs font-semibold text-[#405549]">{currency.format(item.unitPriceCents * item.quantity / 100)}</span>
+            </div>)}
+          </div>
+        </div>
+      </div>
+
+      <aside className="flex flex-col justify-between border-t border-[#e9eee9] bg-[#f7faf7] p-6 sm:p-9 md:border-l md:border-t-0">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-[.13em] text-[#7a8b80]">Order summary</p>
+          <div className="mt-5 flex items-start justify-between gap-3">
+            <span className="text-sm text-[#748279]">Subtotal</span>
+            <span className="font-display text-lg font-semibold text-[#2b4035]">{currency.format(subtotalCents / 100)}</span>
+          </div>
+          <div className="mt-3 flex items-center justify-between gap-3 text-xs">
+            <span className="text-[#829087]">Delivery</span><span className="font-semibold text-[#55735e]">Local pickup</span>
+          </div>
+          <div className="mt-5 border-t border-[#e3eae4] pt-5">
+            <div className="flex items-center justify-between gap-3">
+              <span className="font-display text-base font-semibold text-[#34483b]">Total</span>
+              <span className="font-display text-2xl font-bold tracking-[-.03em] text-[#20372d]">{currency.format(subtotalCents / 100)}</span>
+            </div>
+            <p className="mt-2 text-[11px] leading-5 text-[#89958e]">Paystack will display the final charge in NGN using the current exchange rate before you approve it.</p>
+          </div>
+        </div>
+        <div className="mt-8">
+          <Button disabled={busy || unavailableCount > 0 || items.length === 0} onClick={() => { setCheckoutOpen(false); void submitOrder() }} icon={<ArrowRight size={16} />} className="w-full justify-center py-3.5">
+            {busy ? 'Opening secure payment…' : 'Continue to Paystack'}
+          </Button>
+          {unavailableCount > 0 && <p className="mt-3 text-xs font-medium text-[#b34439]">Remove unavailable items to continue.</p>}
+          <p className="mt-3 flex items-start gap-1.5 text-[10px] leading-4 text-[#929d96]"><ShieldCheck size={12} className="mt-0.5 shrink-0" />After successful payment, your order is recorded and you can arrange pickup with the seller.</p>
+        </div>
+      </aside>
+    </div>
+  </section>
 
   if (order) return <section className="mx-auto max-w-[760px] py-8"><button type="button" onClick={() => { setOrder(null); onShop() }} className="mb-6 inline-flex items-center gap-2 text-sm font-semibold text-[#6f8078] hover:text-[#263b33]"><ArrowLeft size={16} />Back to shop</button><motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="rounded-[20px] border border-[#dfebe0] bg-white p-6 sm:p-9"><span className="grid size-12 place-items-center rounded-2xl bg-[#eaf5e9] text-[#4c8056]"><CheckCircle2 size={24} /></span><p className="mt-5 text-xs font-bold uppercase tracking-[.13em] text-[#63836c]">Order placed</p><h1 className="font-display mt-2 text-3xl font-semibold text-[#233b2f]">Your campus order is in.</h1><p className="mt-2 text-sm leading-6 text-[#748279]">Inventory has been reserved. Coordinate pickup and payment directly with each seller.</p><div className="mt-6 rounded-xl bg-[#f6f8f6] p-4"><div className="flex flex-wrap items-center justify-between gap-2"><span className="text-xs font-semibold text-[#76847b]">Order reference</span><span className="font-mono text-xs font-bold text-[#425c4a]">{order.id}</span></div><div className="mt-3 flex items-center justify-between border-t border-[#e8ede9] pt-3"><span className="text-sm font-semibold text-[#53645a]">Order subtotal</span><span className="font-display text-xl font-bold text-[#263b33]">{currency.format(order.subtotalCents / 100)}</span></div></div><div className="mt-5 space-y-2">{order.items.map((item) => <div key={item.id} className="flex items-center justify-between gap-3 text-xs"><span className="min-w-0 flex-1 truncate text-[#6d7c73]">{item.quantity} × {item.title}</span><span className="font-semibold text-[#405549]">{currency.format(item.unitPriceCents * item.quantity / 100)}</span></div>)}</div><div className="mt-6 flex items-start gap-2 rounded-xl border border-[#e6ece7] p-3 text-xs leading-5 text-[#78867e]"><MapPin size={15} className="mt-0.5 shrink-0 text-[#71917a]" />Keep exchanges on campus and agree on a public meetup spot with each seller.</div><Button onClick={() => { setOrder(null); onShop() }} className="mt-6">Continue shopping</Button></motion.div></section>
 

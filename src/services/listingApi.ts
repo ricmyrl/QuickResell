@@ -1,6 +1,6 @@
 import type { Session } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabase'
-import type { MarketplaceListing, ProductComment } from '../types'
+import type { ListingReactionType, MarketplaceListing, ProductComment } from '../types'
 import type { Coordinates } from '../lib/geolocation'
 
 const pageHostApiUrl = typeof window !== 'undefined' && window.location.protocol === 'http:'
@@ -42,6 +42,8 @@ type ApiListing = {
   locationCampus?: string | null
   latitude?: number | null
   longitude?: number | null
+  _count?: { listingReactions?: number }
+  listingReactions?: Array<{ type: ListingReactionType }>
   category?: { name: string }
   images?: Array<{ url: string }>
   user?: { id: string; displayName?: string | null; avatarUrl?: string | null; trustScore?: number; isCampusVerified?: boolean }
@@ -59,6 +61,8 @@ function normalizeListing(listing: ApiListing): MarketplaceListing {
     location: listing.locationCampus ?? 'Location not provided',
     latitude: listing.latitude,
     longitude: listing.longitude,
+    reactionCount: listing._count?.listingReactions ?? 0,
+    myReaction: listing.listingReactions?.[0]?.type ?? null,
     image: listing.images?.[0]?.url ?? '',
     seller: {
       id: listing.user?.id ?? '',
@@ -218,5 +222,19 @@ export async function setProductCommentReaction(
     `/listings/${encodeURIComponent(listingId)}/comments/${encodeURIComponent(commentId)}/reaction`,
     session,
     { method: liked ? 'POST' : 'DELETE' },
+  )
+}
+
+export async function setListingReaction(
+  listingId: string,
+  reaction: ListingReactionType | null,
+  session: Session,
+): Promise<{ reaction: ListingReactionType | null; reactionCount: number }> {
+  return apiRequest<{ reaction: ListingReactionType | null; reactionCount: number }>(
+    `/listings/${encodeURIComponent(listingId)}/reaction`,
+    session,
+    reaction
+      ? { method: 'POST', body: JSON.stringify({ type: reaction }) }
+      : { method: 'DELETE' },
   )
 }
