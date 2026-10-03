@@ -1,7 +1,7 @@
 import { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { Bell, BellDot, Bookmark, Compass, GraduationCap, ImagePlus, LayoutDashboard, PackageCheck, Search, ShieldCheck, ShoppingBag, ShoppingCart, Sparkles, Store, X } from 'lucide-react'
+import { Bell, BellDot, Bookmark, Compass, GraduationCap, ImagePlus, LayoutDashboard, PackageCheck, Search, ShieldCheck, ShoppingBag, ShoppingCart, Sparkles, Store, WalletCards, X } from 'lucide-react'
 import type { Session } from '@supabase/supabase-js'
 import { Button, IconButton } from './components/common/Button'
 import { NotificationsPanel } from './components/common/NotificationsPanel'
@@ -11,11 +11,11 @@ import { useCurrency } from './lib/CurrencyContext'
 import { useAuctionFeedRealtime } from './hooks/useAuctionFeedRealtime'
 import { useShoppingCart } from './hooks/useShoppingCart'
 import { askScout, closeAuction, createScoutSupportRequest, getAuctionWatchlist, getNotifications, getPublicAuctions, getSellerAuctions, markAllNotificationsRead, markNotificationRead, placeBid, removeAuctionWatchlistRule, saveAuctionWatchlistRule, submitScoutFeedback, submitVerdict } from './services/api'
-import { getStoreListings, initializePayment, verifyPayment } from './services/cartApi'
+import { getStoreListings, initializePayment, initializeWalletTopUp, verifyPayment, verifyWalletTopUp } from './services/cartApi'
 import { getListingCategories, getMyListings, getWatchlist, toggleWatchlist } from './services/listingApi'
 import type { Auction, AuctionWatchlistRule, MarketplaceListing, NotificationItem, PurchaseOrder, Verdict } from './types'
 
-type View = 'feed' | 'shop' | 'cart' | 'dashboard' | 'watchlist' | 'orders'
+type View = 'feed' | 'shop' | 'cart' | 'dashboard' | 'watchlist' | 'orders' | 'wallet'
 type AuthMode = 'signin' | 'register'
 type ToastMessage = { message: string; kind: 'success' | 'error' }
 
@@ -30,6 +30,7 @@ const AuthPage = lazy(() => import('./components/auth/AuthPage').then((module) =
 const ShoppingCartPage = lazy(() => import('./components/cart/ShoppingCartPage').then((module) => ({ default: module.ShoppingCartPage })))
 const PurchaseHistoryPage = lazy(() => import('./components/cart/PurchaseHistoryPage').then((module) => ({ default: module.PurchaseHistoryPage })))
 const StorePage = lazy(() => import('./components/store/StorePage').then((module) => ({ default: module.StorePage })))
+const WalletPage = lazy(() => import('./components/wallet/WalletPage').then((module) => ({ default: module.WalletPage })))
 
 const viewPaths: Record<View, string> = {
   feed: '/',
@@ -38,6 +39,7 @@ const viewPaths: Record<View, string> = {
   dashboard: '/seller',
   watchlist: '/watchlist',
   orders: '/orders',
+  wallet: '/wallet',
 }
 
 function viewForPath(pathname: string): View {
@@ -45,6 +47,7 @@ function viewForPath(pathname: string): View {
   if (pathname === '/cart') return 'cart'
   if (pathname === '/orders') return 'orders'
   if (pathname === '/watchlist') return 'watchlist'
+  if (pathname === '/wallet') return 'wallet'
   if (pathname === '/seller' || pathname.startsWith('/seller/')) return 'dashboard'
   return 'feed'
 }
@@ -56,7 +59,7 @@ function returnPath(state: unknown): string {
 }
 
 function isKnownPath(pathname: string): boolean {
-  return ['/', '/shop', '/cart', '/orders', '/seller', '/seller/products/new', '/watchlist', '/auth/sign-in', '/auth/register'].includes(pathname) || /^\/auctions\/[^/]+$/.test(pathname)
+  return ['/', '/shop', '/cart', '/orders', '/seller', '/seller/products/new', '/watchlist', '/wallet', '/auth/sign-in', '/auth/register'].includes(pathname) || /^\/auctions\/[^/]+$/.test(pathname)
 }
 
 export default function MarketplaceApp() {
@@ -506,6 +509,49 @@ export default function MarketplaceApp() {
     return order
   }
 
+  const handleAddWalletFunds = async (amountCents: number) => {
+    if (!session) {
+      setAuthMode('signin', viewPaths.wallet)
+      throw new Error('Sign in before adding money to your wallet.')
+    }
+    if (!emailConfirmed) throw new Error('Confirm your email before adding money to your wallet.')
+
+    const publicKey = import.meta.env.VITE_PAYSTACK_PUBLIC_KEY
+    if (!publicKey) throw new Error('Add VITE_PAYSTACK_PUBLIC_KEY to your frontend environment.')
+    await loadPaystackScript()
+    const payment = await initializeWalletTopUp(amountCents, session)
+
+    await new Promise<void>((resolve, reject) => {
+      let verifying = false
+      const paystackHandler = window.PaystackPop?.setup({
+        key: publicKey,
+        email: session.user.email ?? '',
+        amount: payment.amountCents,
+        ref: payment.reference,
+        currency: payment.currency,
+        callback: (result) => {
+          verifying = true
+          void verifyWalletTopUp(result.reference ?? payment.reference, session).then((verification) => {
+            if (!verification.verified) throw new Error('Payment verification failed.')
+            showToast('Wallet deposit completed successfully.')
+            resolve()
+          }).catch((caught: unknown) => {
+            reject(caught instanceof Error ? caught : new Error('Wallet payment could not be verified.'))
+          })
+        },
+        onClose: () => {
+          if (!verifying) reject(new Error('Payment cancelled. Your wallet was not changed.'))
+        },
+      })
+
+      if (!paystackHandler) {
+        reject(new Error('Paystack could not be loaded.'))
+        return
+      }
+      paystackHandler.openIframe()
+    })
+  }
+
   const handleListingCreated = (listing: MarketplaceListing) => {
     setOwnListings((current) => [listing, ...current.filter((item) => item.id !== listing.id)])
     showToast(`${listing.title} is now listed for local buyers.`)
@@ -732,6 +778,7 @@ export default function MarketplaceApp() {
     <button type="button" onClick={() => { setView('shop'); setSelectedId(null) }} className={`mt-1 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition-colors ${view === 'shop' ? 'bg-[#edf4ed] text-[#2d5d4c]' : 'text-[#78867e] hover:bg-[#f1f4f1] hover:text-[#263b33]'}`}><Store size={17} />Shop</button>
     <button type="button" onClick={() => { setView('cart'); setSelectedId(null) }} className={`mt-1 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition-colors ${view === 'cart' ? 'bg-[#edf4ed] text-[#2d5d4c]' : 'text-[#78867e] hover:bg-[#f1f4f1] hover:text-[#263b33]'}`}><ShoppingCart size={17} />Cart<span className="ml-auto rounded-full bg-white px-2 py-0.5 text-[10px] text-[#74847a]">{userCart.items.reduce((sum, item) => sum + item.quantity, 0)}</span></button>
     <button type="button" onClick={() => { setView('orders'); setSelectedId(null) }} aria-label={unreadOrderNotifications > 0 ? `My orders, ${unreadOrderNotifications} unread order notifications` : 'My orders'} className={`mt-1 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition-colors ${view === 'orders' ? 'bg-[#edf4ed] text-[#2d5d4c]' : 'text-[#78867e] hover:bg-[#f1f4f1] hover:text-[#263b33]'}`}><span className="relative"><PackageCheck size={17} />{unreadOrderNotifications > 0 && <span className="absolute -right-2 -top-2 min-w-3 text-center text-[9px] font-bold leading-3 text-[#d94b3d]">{Math.min(unreadOrderNotifications, 9)}</span>}</span>My orders</button>
+    <button type="button" onClick={() => { setView('wallet'); setSelectedId(null) }} className={`mt-1 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition-colors ${view === 'wallet' ? 'bg-[#edf4ed] text-[#2d5d4c]' : 'text-[#78867e] hover:bg-[#f1f4f1] hover:text-[#263b33]'}`}><WalletCards size={17} />Wallet</button>
     <button type="button" onClick={openWatchlist} aria-label={unreadWatchlistBidCount > 0 ? `Watchlist, ${unreadWatchlistBidCount} new bid updates` : 'Watchlist'} className={`mt-1 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition-colors ${view === 'watchlist' ? 'bg-[#edf4ed] text-[#2d5d4c]' : 'text-[#78867e] hover:bg-[#f1f4f1] hover:text-[#263b33]'}`}><span className="relative"><Bookmark size={17} />{unreadWatchlistBidCount > 0 && <BellDot size={12} className="absolute -right-2 -top-2 text-[#d94b3d]" />}</span>Watchlist<span className="ml-auto flex items-center gap-1.5">{unreadWatchlistBidCount > 0 && <span className="px-1.5 text-[9px] font-bold text-[#d94b3d]">{Math.min(unreadWatchlistBidCount, 9)}</span>}<span className="rounded-full bg-white px-2 py-0.5 text-[10px] text-[#74847a]">{activeWatchlistCount}</span></span></button>
     <button type="button" onClick={() => { setView('dashboard'); setSelectedId(null) }} className={`mt-1 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition-colors ${view === 'dashboard' ? 'bg-[#edf4ed] text-[#2d5d4c]' : 'text-[#78867e] hover:bg-[#f1f4f1] hover:text-[#263b33]'}`}><LayoutDashboard size={17} />Seller studio{sellerRows.some((item) => item.status === 'PENDING_APPROVAL') && <span className="ml-auto size-2 rounded-full bg-[#df704a]" />}</button>
   </>
@@ -777,7 +824,7 @@ export default function MarketplaceApp() {
 
       {!selectedAuction && view !== 'watchlist' && <button type="button" aria-label={unreadWatchlistBidCount > 0 ? `Open auction watchlist, ${unreadWatchlistBidCount} new bid updates` : 'Open auction watchlist'} title="Open auction watchlist" onClick={openWatchlist} className="fixed bottom-[154px] right-4 z-40 inline-flex h-12 w-12 transform items-center justify-center rounded-full border border-[#cfe4d5] bg-[#dfeee2] text-[#244737] shadow-[0_12px_28px_rgba(35,56,43,.14)] backdrop-blur-sm transition-transform duration-150 hover:bg-[#d2ebd8] active:translate-y-[1px] lg:hidden"><Bookmark size={17} />{unreadWatchlistBidCount > 0 ? <span className="absolute -right-1 -top-1"><BellDot size={16} className="text-[#d94b3d]" /></span> : activeWatchlistCount > 0 && <span className="absolute -right-1 -top-1 grid min-h-4 min-w-4 place-items-center rounded-full bg-[#d4f06b] px-1 text-[9px] font-bold text-[#213b30]">{Math.min(activeWatchlistCount, 9)}</span>}</button>}
       <NavigationAssistant auctions={auctions} listings={listings} dataReady={!dataLoading && !dataError} onNavigate={(destination) => { if (destination === 'dashboard') { openSellerStudio(); return } setSelectedId(null); setView(destination) }} onOpenAuction={(auction) => { setSelectedId(auction.id); setViewState('feed') }} onOpenListing={handleScoutOpenListing} onPrepareRule={prepareAuctionRule} currentUserId={currentUserId} auctionWatchlistRules={auctionWatchlistRules} onFeedback={(feedback) => void handleScoutFeedback(feedback)} onSupportRequest={handleScoutSupportRequest} onAskModel={askScout} signedIn={Boolean(session)} emailConfirmed={emailConfirmed} onSignIn={() => setAuthMode('signin')} />
-      {view === 'watchlist' ? <main className="min-w-0 px-4 pb-24 pt-6 sm:px-6 lg:px-7 lg:pb-8 lg:pt-7"><AuctionWatchlistPage rules={auctionWatchlistRules} recentBidAuctionIds={recentWatchlistBidIds} loading={watchlistLoading} error={watchlistError} savingId={watchlistSavingId} onSave={handleSaveAuctionRule} onRemove={handleRemoveAuctionRule} onOpenAuction={(auction) => setSelectedId(auction.id)} onRequestSignIn={() => setAuthMode('signin')} onBrowseAuctions={() => setView('feed')} signedIn={Boolean(session)} emailConfirmed={emailConfirmed} /></main> : <main className="min-w-0 px-4 pb-24 pt-6 sm:px-6 lg:px-7 lg:pb-8 lg:pt-7">
+      {view === 'watchlist' ? <main className="min-w-0 px-4 pb-24 pt-6 sm:px-6 lg:px-7 lg:pb-8 lg:pt-7"><AuctionWatchlistPage rules={auctionWatchlistRules} recentBidAuctionIds={recentWatchlistBidIds} loading={watchlistLoading} error={watchlistError} savingId={watchlistSavingId} onSave={handleSaveAuctionRule} onRemove={handleRemoveAuctionRule} onOpenAuction={(auction) => setSelectedId(auction.id)} onRequestSignIn={() => setAuthMode('signin')} onBrowseAuctions={() => setView('feed')} signedIn={Boolean(session)} emailConfirmed={emailConfirmed} /></main> : view === 'wallet' ? <main className="min-w-0 px-4 pb-24 pt-6 sm:px-6 lg:px-7 lg:pb-8 lg:pt-7"><WalletPage key={`${currentUserId}:${emailConfirmed}`} session={session} emailConfirmed={emailConfirmed} onRequestSignIn={() => setAuthMode('signin', viewPaths.wallet)} onAddFunds={handleAddWalletFunds} /></main> : <main className="min-w-0 px-4 pb-24 pt-6 sm:px-6 lg:px-7 lg:pb-8 lg:pt-7">
         {session && !emailConfirmed && <div role="status" className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#ead9b0] bg-[#fff9e9] px-4 py-3 text-sm text-[#765b22]"><span>Confirm your email to bid, sell, message sellers, or place orders.</span><Button variant="secondary" onClick={() => void resendConfirmation()} className="min-h-8 rounded-lg px-3 text-xs">Resend confirmation</Button></div>}
         {authLoading ? <div className="grid min-h-72 place-items-center rounded-xl border border-[#e4eae5] bg-white text-sm text-[#849189]">Connecting to your account…</div> : dataError ? <div role="alert" className="mx-auto mt-12 max-w-lg rounded-xl border border-[#f0d7d2] bg-white p-6 text-center"><h1 className="font-display text-xl font-semibold text-[#263b33]">Marketplace data unavailable</h1><p className="mt-2 break-words text-sm text-[#7a8781]">{dataError}</p><Button variant="secondary" onClick={() => { setDataError(''); setLoadedUserId(null); setDataRetry((attempt) => attempt + 1) }} className="mt-4">Retry</Button></div> : dataLoading ? <div className="grid min-h-72 place-items-center rounded-xl border border-[#e4eae5] bg-white text-sm text-[#849189]">Loading marketplace data…</div> : selectedAuction ? <AuctionRoom auction={selectedAuction} userId={currentUserId} session={session} emailConfirmed={emailConfirmed} onRequestSignIn={() => setAuthMode('signin', location.pathname)} onBack={() => setSelectedId(null)} onBid={(amount) => handleBid(selectedAuction, amount)} onExpire={() => handleExpire(selectedAuction)} onNotice={showToast} onRoomUpdate={(patch) => updateRoom(selectedAuction.id, patch)} onVerdict={(decision) => handleVerdict(selectedAuction, decision)} /> : view === 'dashboard' ? <SellerDashboard key={currentUserId} auctions={sellerRows} userId={currentUserId} trustScore={trustScore} completedAuctions={completedAuctions} session={session} emailConfirmed={emailConfirmed} ownListings={ownListings} onRequestSignIn={() => setAuthMode('signin')} onListingCreated={handleListingCreated} onListingUpdated={handleListingUpdated} onVerdict={handleVerdict} onNotice={showToast} /> : view === 'shop' ? <StorePage listings={listings} categories={categories} error={shopError} cartHas={(postId) => userCart.items.some((item) => item.postId === postId)} watchlistIds={watchlistIds} onToggleSaved={(postId) => void handleToggleSaved(postId)} onAdd={(listing) => void handleAddToCart(listing)} onOpenCart={() => setView('cart')} session={session} emailConfirmed={emailConfirmed} onRequestSignIn={() => setAuthMode('signin', '/shop')} /> : view === 'cart' ? <ShoppingCartPage items={userCart.items} loading={userCart.loading} error={userCart.error} onShop={() => setView('shop')} onSetQuantity={userCart.setQuantity} onRemove={userCart.remove} onCheckout={handlePlaceOrder} onRefresh={userCart.refresh} /> : view === 'orders' ? <PurchaseHistoryPage key={currentUserId} session={session} emailConfirmed={emailConfirmed} onRequestSignIn={() => setAuthMode('signin', '/orders')} /> : <GlobalFeed auctions={auctions} categories={categories} watchlistIds={auctionWatchlistRules.map((rule) => rule.auctionRoomId)} savingWatchlistId={watchlistSavingId} watchlistLoading={watchlistLoading} currentUserId={currentUserId} onToggleWatchlist={(auction) => void handleToggleAuctionWatchlist(auction)} onOpen={(auction) => setSelectedId(auction.id)} session={session} emailConfirmed={emailConfirmed} onRequestSignIn={() => setAuthMode('signin', location.pathname)} />}
       </main>}
@@ -785,11 +832,12 @@ export default function MarketplaceApp() {
       {!selectedAuction && view === 'feed' && session && <aside className="hidden border-l border-[#e6ebe7] bg-[#f9faf9] px-4 py-6 xl:block"><div className="mb-6 flex items-center justify-between"><div><p className="text-[10px] font-bold uppercase tracking-[.12em] text-[#8b9891]">Your profile</p><p className="font-display mt-1 max-w-44 truncate text-sm font-semibold text-[#2b4036]">{session.user.user_metadata.full_name ?? session.user.email}</p></div>{session.user.user_metadata.avatar_url && <img src={session.user.user_metadata.avatar_url} alt="" className="size-10 rounded-full object-cover" loading="lazy" decoding="async" />}</div>{trustScore !== null && completedAuctions !== null && <div className="rounded-[16px] border border-[#e4eae5] bg-white p-4"><div className="mb-3 flex items-center justify-between"><span className="text-xs font-semibold text-[#718078]">Seller standing</span><Sparkles size={14} className="text-[#9bad4e]" /></div><p className="font-display text-[31px] font-bold leading-none text-[#294339]">{trustScore}<span className="ml-1 text-sm font-semibold text-[#94a099]">/100</span></p><div className="mt-3"><TrustScoreBadge score={trustScore} completedAuctions={completedAuctions} noReserveHero /></div><p className="mt-3 border-t border-[#eff2ef] pt-3 text-[11px] leading-5 text-[#8a9690]">Your follow-through earns trust. Buyers can see your record in every room.</p></div>}<div className="mt-6"><div className="mb-3 flex items-center justify-between"><p className="text-xs font-bold uppercase tracking-[.1em] text-[#718078]">Ending soon</p></div><div className="space-y-2">{auctions.filter((item) => item.status === 'ACTIVE').slice(0, 3).map((item) => <button key={item.id} type="button" onClick={() => setSelectedId(item.id)} className="flex w-full items-center gap-2.5 rounded-xl border border-[#e8ede9] bg-white p-2 text-left transition hover:border-[#c9d8cd]"><img src={item.image} alt="" className="size-11 rounded-lg object-cover" loading="lazy" decoding="async" /><span className="min-w-0 flex-1"><span className="block truncate text-xs font-semibold text-[#394b42]">{item.title}</span><span className="mt-1 block text-[10px] text-[#849189]">${item.currentHighestBid} · {item.bids.length} bids</span></span></button>)}</div></div><button type="button" onClick={() => { setView('dashboard'); setSelectedId(null) }} className="mt-6 w-full rounded-[14px] bg-[#dcecff] p-3.5 text-left"><span className="flex items-center gap-2 text-xs font-bold text-[#345b75]"><Store size={14} />Sell something nearby</span><span className="mt-1 block text-[11px] leading-4 text-[#57758b]">Create a listing in Seller Studio.</span></button></aside>}
     </div>
 
-    <nav className="fixed inset-x-0 bottom-0 z-30 flex justify-around border-t border-[#e3e9e4] bg-white/95 px-3 py-2 backdrop-blur lg:hidden">
+    <nav className="fixed inset-x-0 bottom-0 z-30 flex justify-around border-t border-[#e3e9e4] bg-white/95 px-3 py-2 backdrop-blur lg:hidden [&>button]:!min-w-0 [&>button]:flex-1">
       <button type="button" onClick={() => { setView('feed'); setSelectedId(null) }} className={`flex min-w-16 flex-col items-center gap-1 py-1 text-[10px] font-semibold ${view === 'feed' ? 'text-[#376b59]' : 'text-[#839087]'}`}><Compass size={19} />Auctions</button>
       <button type="button" onClick={() => setView('shop')} className={`flex min-w-16 flex-col items-center gap-1 py-1 text-[10px] font-semibold ${view === 'shop' ? 'text-[#376b59]' : 'text-[#839087]'}`}><Store size={19} />Shop</button>
       <button type="button" onClick={() => { setView('cart'); setSelectedId(null) }} className={`flex min-w-16 flex-col items-center gap-1 py-1 text-[10px] font-semibold ${view === 'cart' ? 'text-[#376b59]' : 'text-[#839087]'}`}><span className="relative"><ShoppingCart size={19} />{userCart.items.length > 0 && <span className="absolute -right-2 -top-1 grid min-h-3.5 min-w-3.5 place-items-center rounded-full bg-[#d94b3d] px-0.5 text-[8px] font-bold text-white">{userCart.items.reduce((sum, item) => sum + item.quantity, 0)}</span>}</span>Cart</button>
       <button type="button" onClick={() => { setView('orders'); setSelectedId(null) }} aria-label={unreadOrderNotifications > 0 ? `Orders, ${unreadOrderNotifications} unread order notifications` : 'Orders'} className={`flex min-w-16 flex-col items-center gap-1 py-1 text-[10px] font-semibold ${view === 'orders' ? 'text-[#376b59]' : 'text-[#839087]'}`}><span className="relative"><PackageCheck size={19} />{unreadOrderNotifications > 0 && <span className="absolute -right-2 -top-2 min-w-3 text-center text-[9px] font-bold leading-3 text-[#d94b3d]">{Math.min(unreadOrderNotifications, 9)}</span>}</span>Orders</button>
+      <button type="button" onClick={() => { setView('wallet'); setSelectedId(null) }} className={`flex min-w-16 flex-col items-center gap-1 py-1 text-[10px] font-semibold ${view === 'wallet' ? 'text-[#376b59]' : 'text-[#839087]'}`}><WalletCards size={19} />Wallet</button>
       <button type="button" onClick={() => { setView('dashboard'); setSelectedId(null) }} className={`flex min-w-16 flex-col items-center gap-1 py-1 text-[10px] font-semibold ${view === 'dashboard' ? 'text-[#376b59]' : 'text-[#839087]'}`}><LayoutDashboard size={19} />Studio</button>
     </nav>
 

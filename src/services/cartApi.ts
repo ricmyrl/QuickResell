@@ -144,6 +144,28 @@ export async function verifyPayment(reference: string, session?: Session | null)
   return request<{ verified: boolean; status: string; reference: string; amount: number; currency: string; metadata?: Record<string, unknown> }>(`/payments/verify/${encodeURIComponent(reference)}`, { method: 'GET' }, session)
 }
 
+export type WalletData = {
+  balanceCents: number
+  transactions: Array<{ id: string; amountCents: number; paymentReference: string; createdAt: string }>
+}
+
+export async function getWallet(session?: Session | null): Promise<WalletData> {
+  return request<WalletData>('/wallet', {}, session)
+}
+
+export async function initializeWalletTopUp(amountCents: number, session?: Session | null): Promise<{ authorization_url: string; access_code: string; reference: string; amountCents: number; currency: string }> {
+  return request<{ authorization_url: string; access_code: string; reference: string; amountCents: number; currency: string }>('/wallet/topups/initialize', {
+    method: 'POST',
+    body: JSON.stringify({ amountCents }),
+  }, session)
+}
+
+export async function verifyWalletTopUp(reference: string, session?: Session | null): Promise<{ verified: boolean; reference: string; balanceCents: number }> {
+  return request<{ verified: boolean; reference: string; balanceCents: number }>(`/wallet/topups/verify/${encodeURIComponent(reference)}`, {
+    method: 'POST',
+  }, session)
+}
+
 export async function placeCartOrder(paymentReference?: string, session?: Session | null): Promise<PurchaseOrder> {
   const result = await request<{ order: PurchaseOrder }>('/cart/checkout', {
     method: 'POST',
