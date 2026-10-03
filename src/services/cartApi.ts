@@ -17,8 +17,18 @@ const apiBaseCandidates = Array.from(new Set([
 
 export class CartApiError extends Error {
   readonly status: number
-  constructor(message: string, status: number) { super(message); this.status = status; this.name = 'CartApiError' }
+  readonly code?: string
+  readonly requestId?: string
+  constructor(message: string, status: number, code?: string, requestId?: string) {
+    super(message)
+    this.status = status
+    this.code = code
+    this.requestId = requestId
+    this.name = 'CartApiError'
+  }
 }
+
+type ApiErrorPayload = { error?: unknown; code?: unknown; requestId?: unknown }
 
 type ApiPost = {
   id: string; title: string; description?: string | null; price: number; originalPrice?: number | null
@@ -61,25 +71,34 @@ async function request<T>(path: string, init: RequestInit = {}, session?: Sessio
       headers.set('Content-Type', 'application/json')
       if (activeSession?.access_token) headers.set('Authorization', `Bearer ${activeSession.access_token}`)
       const response = await fetch(`${baseUrl}${path}`, { ...init, headers })
-      const payload = await response.json().catch(() => ({})) as { error?: string }
-      if (!response.ok) {
-        if (response.status >= 500) {
-          lastError = new CartApiError(payload.error ?? `Request failed (${response.status}).`, response.status)
-          continue
+      const body = await response.text()
+      let payload: ApiErrorPayload = {}
+      if (body) {
+        try {
+          payload = JSON.parse(body) as ApiErrorPayload
+        } catch {
+          if (response.ok) {
+            throw new CartApiError('The server returned an unreadable response.', response.status, 'INVALID_SERVER_RESPONSE', response.headers.get('X-Request-Id') ?? undefined)
+          }
         }
-        throw new CartApiError(payload.error ?? `Request failed (${response.status}).`, response.status)
       }
-      return payload as T
+      if (!response.ok) {
+        const message = typeof payload.error === 'string' ? payload.error : `Request failed (${response.status}).`
+        const code = typeof payload.code === 'string' ? payload.code : undefined
+        const requestId = typeof payload.requestId === 'string' ? payload.requestId : response.headers.get('X-Request-Id') ?? undefined
+        throw new CartApiError(message, response.status, code, requestId)
+      }
+      return (body ? payload : undefined) as T
     } catch (error) {
       lastError = error
-      if (error instanceof CartApiError && error.status < 500) {
+      if (error instanceof CartApiError) {
         throw error
       }
     }
   }
 
-  if (lastError instanceof Error) throw lastError
-  throw new Error(`Request failed for ${path}.`)
+  if (lastError instanceof CartApiError) throw lastError
+  throw new CartApiError('Could not connect to the marketplace server. Check your connection and try again.', 0, 'NETWORK_ERROR')
 }
 
 export async function getStoreListings(session?: Session | null): Promise<MarketplaceListing[]> {

@@ -4,6 +4,7 @@ import { Bot, ChevronDown, Compass, ExternalLink, MessageCircle, Minus, Send, Sh
 import type { FormEvent } from 'react'
 import type { Auction, AuctionWatchlistRule, MarketplaceListing } from '../../types'
 import { useCurrency } from '../../lib/CurrencyContext'
+import type { ScoutChatContext, ScoutChatMessage, ScoutChatReply } from '../../services/api'
 
 type Destination = 'feed' | 'shop' | 'cart' | 'dashboard' | 'watchlist'
 type AssistantAction = { destination?: Destination } & (
@@ -15,7 +16,7 @@ type AssistantAction = { destination?: Destination } & (
   | { label: string; kind: 'signin' }
 )
 type ScoutIntent = 'greeting' | 'bid_rule' | 'bid_status' | 'auction_search' | 'shop_search' | 'checkout' | 'seller' | 'trust' | 'support' | 'unknown'
-type ChatMessage = { id: string; role: 'assistant' | 'customer'; text: string; intent?: ScoutIntent; actions?: AssistantAction[]; feedback?: boolean; createdAt: number }
+type ChatMessage = { id: string; role: 'assistant' | 'customer'; text: string; intent?: ScoutIntent; actions?: AssistantAction[]; feedback?: boolean; model?: string; createdAt: number }
 type CachedMarketData = { auctions: Auction[]; listings: MarketplaceListing[]; savedAt: number }
 type NavigationAssistantProps = {
   auctions: Auction[]
@@ -29,6 +30,7 @@ type NavigationAssistantProps = {
   auctionWatchlistRules: AuctionWatchlistRule[]
   onFeedback: (feedback: { messageId: string; intent: string; helpful: boolean }) => void
   onSupportRequest: (category: string, message: string) => Promise<{ id: string; emailNotified: boolean } | null>
+  onAskModel: (messages: ScoutChatMessage[], context: ScoutChatContext) => Promise<ScoutChatReply>
   signedIn: boolean
   emailConfirmed: boolean
   onSignIn: () => void
@@ -273,7 +275,7 @@ function answerLocally(text: string, auctions: Auction[], listings: MarketplaceL
   return { text: 'I’m not sure I understood. Try asking about a bid, a product and budget, checkout, or selling; I can also open the live auctions or Shop.', intent: 'unknown', actions: [{ label: 'Live auctions', kind: 'navigate', destination: 'feed' }, { label: 'Shop', kind: 'navigate', destination: 'shop' }, { label: 'Seller Studio', kind: 'navigate', destination: 'dashboard' }] }
 }
 
-function NavigationAssistant({ auctions, listings, dataReady, onNavigate, onOpenAuction, onOpenListing, onPrepareRule, currentUserId, auctionWatchlistRules, onFeedback, onSupportRequest, signedIn, emailConfirmed, onSignIn }: NavigationAssistantProps) {
+function NavigationAssistant({ auctions, listings, dataReady, onNavigate, onOpenAuction, onOpenListing, onPrepareRule, currentUserId, auctionWatchlistRules, onFeedback, onSupportRequest, onAskModel, signedIn, emailConfirmed, onSignIn }: NavigationAssistantProps) {
   const { currency: selectedCurrency, formatUsd, localToUsd, ratesReady } = useCurrency()
   const [open, setOpen] = useState(false)
   const [draft, setDraft] = useState('')
@@ -283,6 +285,7 @@ function NavigationAssistant({ auctions, listings, dataReady, onNavigate, onOpen
   const [supportMessage, setSupportMessage] = useState('')
   const [supportNotice, setSupportNotice] = useState('')
   const [online, setOnline] = useState(typeof navigator === 'undefined' || navigator.onLine)
+  const [isThinking, setIsThinking] = useState(false)
   const [cachedData] = useState<CachedMarketData>(() => readStorage(marketCacheKey, { auctions: [], listings: [], savedAt: 0 }))
   const [messages, setMessages] = useState<ChatMessage[]>(() => readStorage(historyKey, []))
   const endRef = useRef<HTMLDivElement>(null)
@@ -336,19 +339,59 @@ function NavigationAssistant({ auctions, listings, dataReady, onNavigate, onOpen
     }
   }, [open])
 
-  const sendMessage = (rawText: string) => {
+  const sendMessage = async (rawText: string) => {
     const text = rawText.trim()
-    if (!text) return
+    if (!text || isThinking) return
     const answer = selectedCurrency !== 'USD' && !ratesReady
       ? { text: 'Currency rates are still loading. Please try that price request again in a moment.', intent: 'unknown' as const }
       : answerLocally(text, context.auctions, context.listings, currentUserId, auctionWatchlistRules, online, formatUsd, localToUsd)
     const now = Date.now()
+    const customerId = makeId()
+    const assistantId = makeId()
     setMessages((current) => [
       ...current,
-      { id: makeId(), role: 'customer' as const, text, createdAt: now },
-      { id: makeId(), role: 'assistant' as const, ...answer, createdAt: now + 1 },
+      { id: customerId, role: 'customer' as const, text, createdAt: now },
+      { id: assistantId, role: 'assistant' as const, ...answer, createdAt: now + 1 },
     ].slice(-40))
     setDraft('')
+    if (answer.intent !== 'unknown' || !online || (selectedCurrency !== 'USD' && !ratesReady)) return
+
+    setIsThinking(true)
+    const conversation: ScoutChatMessage[] = [
+      ...messages.slice(-6).map((message): ScoutChatMessage => ({
+        role: message.role === 'customer' ? 'user' as const : 'assistant' as const,
+        content: message.text.slice(0, 1000),
+      })),
+      { role: 'user' as const, content: text },
+    ].slice(-8)
+    const modelContext: ScoutChatContext = {
+      auctions: context.auctions.filter((auction) => auction.status === 'ACTIVE').slice(0, 20).map((auction) => ({
+        title: auction.title,
+        category: auction.category,
+        location: auction.location,
+        currentBid: auction.currentHighestBid,
+        bids: auction.bids.length,
+      })),
+      listings: context.listings.slice(0, 20).map((listing) => ({
+        title: listing.title,
+        category: listing.category,
+        location: listing.location,
+        price: listing.price,
+        quantityAvailable: listing.quantityAvailable,
+      })),
+    }
+    try {
+      const reply = await onAskModel(conversation, modelContext)
+      setMessages((current) => current.map((message) => message.id === assistantId
+        ? { ...message, text: reply.reply, model: reply.model }
+        : message))
+    } catch {
+      setMessages((current) => current.map((message) => message.id === assistantId
+        ? { ...message, text: `${message.text} AI assistance is unavailable right now; you can still use the links above.` }
+        : message))
+    } finally {
+      setIsThinking(false)
+    }
   }
 
   const runAction = (action: AssistantAction) => {
@@ -417,10 +460,48 @@ function NavigationAssistant({ auctions, listings, dataReady, onNavigate, onOpen
       <div aria-hidden="true" className="mx-auto mt-2.5 h-1 w-10 shrink-0 rounded-full bg-[#d8dfd9] sm:hidden" />
       <header className="flex items-center gap-3 bg-[#263d31] px-4 py-3.5 text-white"><span className="grid size-9 shrink-0 place-items-center rounded-[11px] bg-[#d4f06b] text-[#233a30]"><Bot size={19} /></span><div className="min-w-0 flex-1"><div className="flex items-center gap-2"><h2 className="font-display text-sm font-semibold">Scout</h2><span className="rounded-full bg-white/10 px-2 py-0.5 text-[9px] font-bold uppercase tracking-[.1em] text-[#d8e5da]">Campus guide</span></div><p className="mt-0.5 flex items-center gap-1.5 text-[10px] text-[#c1d0c4]"><span className={`size-1.5 rounded-full ${online ? 'bg-[#b9e475]' : 'bg-[#f3be68]'}`} />{statusText}</p></div><button type="button" aria-label="Minimize Scout" onClick={() => setOpen(false)} className="grid size-9 place-items-center rounded-lg text-white/75 hover:bg-white/10 hover:text-white"><Minus size={17} /></button><button type="button" aria-label="Close Scout" onClick={() => setOpen(false)} className="grid size-9 place-items-center rounded-lg text-white/75 hover:bg-white/10 hover:text-white"><X size={17} /></button></header>
 
-      <div className="flex items-center gap-2 border-b border-[#edf1ec] bg-[#f6f8f4] px-4 py-2 text-[10px] text-[#77867b]"><Sparkles size={12} className="text-[#82934f]" />Answers run on this device. {isUsingCache ? `Using saved marketplace data from ${new Date(cachedData.savedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}.` : dataReady ? 'Marketplace context is up to date.' : 'Navigation and bidding help work without a connection.'}</div>
+      <div className="flex items-center gap-2 border-b border-[#edf1ec] bg-[#f6f8f4] px-4 py-2 text-[10px] text-[#77867b]"><Sparkles size={12} className="text-[#82934f]" />AI help uses the configured model when available. Avoid sharing passwords or payment details; app actions stay in your control. {isUsingCache ? `Using saved marketplace data from ${new Date(cachedData.savedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}.` : dataReady ? 'Marketplace context is up to date.' : 'Local navigation and bidding help work without a connection.'}</div>
 
       <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-4 sm:px-4" aria-live="polite">
-        {messages.length === 0 ? <div className="py-3"><div className="mb-4 flex gap-3"><span className="grid size-8 shrink-0 place-items-center rounded-[10px] bg-[#e8f0e4] text-[#4f7050]"><Compass size={16} /></span><div className="max-w-[84%] rounded-2xl rounded-tl-sm bg-[#eef3eb] px-3.5 py-3 text-[13px] leading-5 text-[#3f5143]"><p className="font-semibold text-[#2d4535]">Hi, I’m Scout.</p><p className="mt-1">I can find your way around QuickResell, explain bidding, and help you reach the right screen.</p></div></div><div className="ml-11 flex flex-wrap gap-2">{quickPrompts.map((prompt) => <button key={prompt} type="button" onClick={() => sendMessage(prompt)} className="rounded-full border border-[#dce6d9] bg-white px-3 py-2 text-left text-[11px] font-semibold text-[#526b55] transition hover:border-[#9fb49c] hover:bg-[#f5f8f3]">{prompt}</button>)}</div></div> : messages.map((message) => <div key={message.id} className={`flex ${message.role === 'customer' ? 'justify-end' : 'justify-start'}`}><div className={`max-w-[88%] ${message.role === 'customer' ? 'rounded-2xl rounded-br-sm bg-[#2d5140] px-3.5 py-2.5 text-white' : 'rounded-2xl rounded-tl-sm bg-[#eef3eb] px-3.5 py-3 text-[#405245]'}`}><p className="whitespace-pre-wrap text-[12px] leading-[19px]">{message.text}</p>{message.actions?.length ? <div className="mt-3 flex flex-wrap gap-1.5">{message.actions.map((action, index) => <button key={`${message.id}-${index}`} type="button" onClick={() => runAction(action)} className="inline-flex min-h-8 items-center gap-1 rounded-lg border border-[#d8e2d4] bg-white px-2.5 text-[10px] font-bold text-[#436448] transition hover:border-[#a9bca4] hover:bg-[#f8faf6]">{action.kind === 'auction' ? <ExternalLink size={11} /> : action.kind === 'signin' ? <ShieldCheck size={11} /> : action.destination === 'shop' ? <Store size={11} /> : <Compass size={11} />}{action.label}</button>)}</div> : null}{message.role === 'assistant' && message.intent && !feedbackVotes[message.id] ? <div className="mt-3 flex items-center gap-2 border-t border-[#e2e9e0] pt-2 text-[10px] font-semibold text-[#64766a]"><span>Helpful?</span><button type="button" aria-label="Mark answer helpful" onClick={() => saveFeedback(message, true)} className="inline-flex items-center gap-1 rounded-full border border-[#d7e1d5] bg-white px-2 py-1 text-[#2a5140] hover:bg-[#f5faf4]"><ThumbsUp size={11} />Yes</button><button type="button" aria-label="Mark answer unhelpful" onClick={() => saveFeedback(message, false)} className="inline-flex items-center gap-1 rounded-full border border-[#d7e1d5] bg-white px-2 py-1 text-[#6c4b3c] hover:bg-[#faf3f0]"><ThumbsDown size={11} />No</button></div> : null}</div></div>)}
+        {messages.length === 0 ? (
+          <div className="py-3">
+            <div className="mb-4 flex gap-3">
+              <span className="grid size-8 shrink-0 place-items-center rounded-[10px] bg-[#e8f0e4] text-[#4f7050]"><Compass size={16} /></span>
+              <div className="max-w-[84%] rounded-2xl rounded-tl-sm bg-[#eef3eb] px-3.5 py-3 text-[13px] leading-5 text-[#3f5143]">
+                <p className="font-semibold text-[#2d4535]">Hi, I’m Scout.</p>
+                <p className="mt-1">I can find your way around QuickResell, explain bidding, and help you reach the right screen.</p>
+              </div>
+            </div>
+            <div className="ml-11 flex flex-wrap gap-2">
+              {quickPrompts.map((prompt) => <button key={prompt} type="button" disabled={isThinking} onClick={() => void sendMessage(prompt)} className="rounded-full border border-[#dce6d9] bg-white px-3 py-2 text-left text-[11px] font-semibold text-[#526b55] transition hover:border-[#9fb49c] hover:bg-[#f5f8f3] disabled:cursor-not-allowed disabled:opacity-60">{prompt}</button>)}
+            </div>
+          </div>
+        ) : messages.map((message) => (
+          <div key={message.id} className={`flex ${message.role === 'customer' ? 'justify-end' : 'justify-start'}`}>
+            <div className={`max-w-[88%] ${message.role === 'customer' ? 'rounded-2xl rounded-br-sm bg-[#2d5140] px-3.5 py-2.5 text-white' : 'rounded-2xl rounded-tl-sm bg-[#eef3eb] px-3.5 py-3 text-[#405245]'}`}>
+              <p className="whitespace-pre-wrap text-[12px] leading-[19px]">{message.text}</p>
+              {message.model && <p className="mt-2 text-[9px] font-semibold text-[#71816f]">{message.model} · AI-assisted</p>}
+              {message.actions?.length ? (
+                <div className="mt-3 flex flex-wrap gap-1.5">
+                  {message.actions.map((action, index) => (
+                    <button key={`${message.id}-${index}`} type="button" onClick={() => runAction(action)} className="inline-flex min-h-8 items-center gap-1 rounded-lg border border-[#d8e2d4] bg-white px-2.5 text-[10px] font-bold text-[#436448] transition hover:border-[#a9bca4] hover:bg-[#f8faf6]">
+                      {action.kind === 'auction' ? <ExternalLink size={11} /> : action.kind === 'signin' ? <ShieldCheck size={11} /> : action.destination === 'shop' ? <Store size={11} /> : <Compass size={11} />}
+                      {action.label}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+              {message.role === 'assistant' && message.intent && !feedbackVotes[message.id] ? (
+                <div className="mt-3 flex items-center gap-2 border-t border-[#e2e9e0] pt-2 text-[10px] font-semibold text-[#64766a]">
+                  <span>Helpful?</span>
+                  <button type="button" aria-label="Mark answer helpful" onClick={() => saveFeedback(message, true)} className="inline-flex items-center gap-1 rounded-full border border-[#d7e1d5] bg-white px-2 py-1 text-[#2a5140] hover:bg-[#f5faf4]"><ThumbsUp size={11} />Yes</button>
+                  <button type="button" aria-label="Mark answer unhelpful" onClick={() => saveFeedback(message, false)} className="inline-flex items-center gap-1 rounded-full border border-[#d7e1d5] bg-white px-2 py-1 text-[#6c4b3c] hover:bg-[#faf3f0]"><ThumbsDown size={11} />No</button>
+                </div>
+              ) : null}
+            </div>
+          </div>
+        ))}
+        {isThinking && <p role="status" className="text-center text-[10px] text-[#77867b]">Scout is preparing an AI-assisted reply…</p>}
         <div ref={endRef} />
       </div>
 
@@ -450,7 +531,7 @@ function NavigationAssistant({ auctions, listings, dataReady, onNavigate, onOpen
         </div>
       </form>}
 
-      <div className="border-t border-[#e9eee8] bg-white p-3 pb-[max(12px,env(safe-area-inset-bottom))] sm:pb-3"><form onSubmit={(event) => { event.preventDefault(); sendMessage(draft) }} className="flex items-center gap-2 rounded-xl border border-[#dfe7dd] bg-[#fafbf9] p-1.5 pl-3 focus-within:border-[#93ad8e]"><input value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="Ask about bidding, shopping…" aria-label="Message Scout" className="min-w-0 flex-1 bg-transparent py-2 text-xs text-[#314336] outline-none placeholder:text-[#9aa59b]" /><button type="submit" disabled={!draft.trim()} aria-label="Send message" className="grid size-9 shrink-0 place-items-center rounded-lg bg-[#2d5140] text-white transition hover:bg-[#3d684d] disabled:cursor-not-allowed disabled:bg-[#b8c2b8]"><Send size={15} /></button></form><div className="mt-2 flex items-center justify-between px-1 text-[9px] text-[#9aa49c]"><span className="inline-flex items-center gap-1">{online ? <Wifi size={10} /> : <WifiOff size={10} />}{online ? 'Local assistant · marketplace context' : 'Offline ready'}</span><span>Scout can make mistakes</span></div></div>
+      <div className="border-t border-[#e9eee8] bg-white p-3 pb-[max(12px,env(safe-area-inset-bottom))] sm:pb-3"><form onSubmit={(event) => { event.preventDefault(); void sendMessage(draft) }} className="flex items-center gap-2 rounded-xl border border-[#dfe7dd] bg-[#fafbf9] p-1.5 pl-3 focus-within:border-[#93ad8e]"><input value={draft} maxLength={1000} onChange={(event) => setDraft(event.target.value)} placeholder="Ask about bidding, shopping…" aria-label="Message Scout" className="min-w-0 flex-1 bg-transparent py-2 text-xs text-[#314336] outline-none placeholder:text-[#9aa59b]" /><button type="submit" disabled={!draft.trim() || isThinking} aria-label="Send message" className="grid size-9 shrink-0 place-items-center rounded-lg bg-[#2d5140] text-white transition hover:bg-[#3d684d] disabled:cursor-not-allowed disabled:bg-[#b8c2b8]"><Send size={15} /></button></form><div className="mt-2 flex items-center justify-between px-1 text-[9px] text-[#9aa49c]"><span className="inline-flex items-center gap-1">{online ? <Wifi size={10} /> : <WifiOff size={10} />}{isThinking ? 'Scout is thinking…' : online ? 'AI assist · local fallback ready' : 'Offline ready'}</span><span>Scout can make mistakes</span></div></div>
       </section>
     </div> : null, document.body)}
 

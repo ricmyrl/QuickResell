@@ -31,6 +31,12 @@ type ApiAuctionWatchlistRule = {
   updatedAt: string
   auctionRoom: ApiAuctionRoom | null
 }
+export type ScoutChatMessage = { role: 'user' | 'assistant'; content: string }
+export type ScoutChatContext = {
+  auctions: Array<{ title: string; category: string; location: string; currentBid: number; bids: number }>
+  listings: Array<{ title: string; category: string; location: string; price: number; quantityAvailable: number }>
+}
+export type ScoutChatReply = { reply: string; model: string }
 
 export class ApiError extends Error {
   readonly status: number
@@ -54,7 +60,7 @@ function normalizeRoom(room: ApiAuctionRoom): Auction {
   }
 }
 
-async function request<T>(path: string, init: RequestInit = {}, session?: Session | null): Promise<T> {
+async function request<T>(path: string, init: RequestInit = {}, session?: Session | null, retryServerErrors = true): Promise<T> {
   let lastError: unknown
   for (const baseUrl of apiBaseCandidates) {
     try {
@@ -67,6 +73,7 @@ async function request<T>(path: string, init: RequestInit = {}, session?: Sessio
       if (!response.ok) {
         if (response.status >= 500) {
           lastError = new ApiError(payload.error ?? `Request failed (${response.status}).`, response.status)
+          if (!retryServerErrors) throw lastError
           continue
         }
         throw new ApiError(payload.error ?? `Request failed (${response.status}).`, response.status)
@@ -74,7 +81,7 @@ async function request<T>(path: string, init: RequestInit = {}, session?: Sessio
       return payload as T
     } catch (error) {
       lastError = error
-      if (error instanceof ApiError && error.status < 500) {
+      if (error instanceof ApiError && (!retryServerErrors || error.status < 500)) {
         throw error
       }
     }
@@ -82,6 +89,20 @@ async function request<T>(path: string, init: RequestInit = {}, session?: Sessio
 
   if (lastError instanceof Error) throw lastError
   throw new Error(`Request failed for ${path}.`)
+}
+
+export async function askScout(messages: ScoutChatMessage[], context: ScoutChatContext): Promise<ScoutChatReply> {
+  const result = await request<{ reply?: unknown; model?: unknown }>('/scout/chat', {
+    method: 'POST',
+    body: JSON.stringify({ messages, context }),
+  }, undefined, false)
+  if (typeof result.reply !== 'string' || !result.reply.trim()) {
+    throw new Error('Scout returned an invalid response.')
+  }
+  return {
+    reply: result.reply.trim(),
+    model: typeof result.model === 'string' && result.model.trim() ? result.model.trim() : 'Configured model',
+  }
 }
 
 export async function getPublicAuctions(session?: Session | null): Promise<Auction[]> {

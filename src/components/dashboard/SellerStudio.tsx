@@ -10,7 +10,7 @@ import { SellerVerdictModal } from './SellerVerdictModal'
 import { useCurrency } from '../../lib/CurrencyContext'
 import { getCurrentLocation } from '../../lib/geolocation'
 import { updateListingLocation } from '../../services/listingApi'
-import { getSellerOrders, updateOrderFulfillment } from '../../services/cartApi'
+import { CartApiError, getSellerOrders, updateOrderFulfillment } from '../../services/cartApi'
 
 type StudioSection = 'overview' | 'inventory' | 'auctions' | 'orders'
 type StudioProps = {
@@ -47,6 +47,8 @@ function SellerStudio({ auctions, userId, trustScore, completedAuctions, session
   const [orderItems, setOrderItems] = useState<SellerOrderItem[]>([])
   const [ordersLoading, setOrdersLoading] = useState(Boolean(session))
   const [ordersError, setOrdersError] = useState('')
+  const [ordersErrorRequestId, setOrdersErrorRequestId] = useState('')
+  const [ordersReloadKey, setOrdersReloadKey] = useState(0)
   const [fulfillmentBusyId, setFulfillmentBusyId] = useState<string | null>(null)
 
   useEffect(() => {
@@ -55,12 +57,15 @@ function SellerStudio({ auctions, userId, trustScore, completedAuctions, session
     void getSellerOrders(session).then((items) => {
       if (!cancelled) setOrderItems(items)
     }).catch((caught: unknown) => {
-      if (!cancelled) setOrdersError(caught instanceof Error ? caught.message : 'Sales could not be loaded.')
+      if (!cancelled) {
+        setOrdersError(caught instanceof Error ? caught.message : 'Sales could not be loaded.')
+        setOrdersErrorRequestId(caught instanceof CartApiError ? caught.requestId ?? '' : '')
+      }
     }).finally(() => {
       if (!cancelled) setOrdersLoading(false)
     })
     return () => { cancelled = true }
-  }, [session])
+  }, [session, ordersReloadKey])
 
   const pending = auctions.filter((auction) => auction.status === 'PENDING_APPROVAL' && (!userId || auction.sellerId === userId))
   const active = auctions.filter((auction) => auction.status === 'ACTIVE' && (!userId || auction.sellerId === userId))
@@ -114,6 +119,7 @@ function SellerStudio({ auctions, userId, trustScore, completedAuctions, session
     if (!session) return
     setFulfillmentBusyId(item.id)
     setOrdersError('')
+    setOrdersErrorRequestId('')
     try {
       const updated = await updateOrderFulfillment(item.id, method, session)
       setOrderItems((current) => current.map((orderItem) => orderItem.id === item.id ? updated : orderItem))
@@ -121,6 +127,7 @@ function SellerStudio({ auctions, userId, trustScore, completedAuctions, session
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : 'The sale could not be updated.'
       setOrdersError(message)
+      setOrdersErrorRequestId(caught instanceof CartApiError ? caught.requestId ?? '' : '')
       onNotice(message, 'error')
     } finally {
       setFulfillmentBusyId(null)
@@ -198,7 +205,7 @@ function SellerStudio({ auctions, userId, trustScore, completedAuctions, session
 
     {section === 'orders' && <section className="overflow-hidden rounded-[14px] border border-[#e2e9e3] bg-white">
       <div className="border-b border-[#edf1ed] px-4 py-4 sm:px-5"><h2 className="font-display text-base font-semibold text-[#263c31]">Paid sales</h2><p className="mt-1 text-xs text-[#849087]">Choose pickup or shipping for each paid item. Buyers can track the update and confirm receipt.</p></div>
-      {ordersError && <p role="alert" className="border-b border-[#f0d7d2] bg-[#fff5f2] px-4 py-3 text-sm text-[#a34237]">{ordersError}</p>}
+      {ordersError && <div role="alert" className="flex flex-wrap items-center justify-between gap-3 border-b border-[#f0d7d2] bg-[#fff5f2] px-4 py-3 text-sm text-[#a34237]"><div><p>{ordersError}</p>{ordersErrorRequestId && <p className="mt-1 text-xs">Support reference: {ordersErrorRequestId}</p>}</div><Button variant="secondary" onClick={() => { setOrdersLoading(true); setOrdersError(''); setOrdersErrorRequestId(''); setOrdersReloadKey((value) => value + 1) }} className="min-h-8 px-3 text-xs">Try again</Button></div>}
       {ordersLoading ? <p className="px-4 py-8 text-center text-sm text-[#849087]">Loading sales…</p> : orderItems.length === 0 ? <p className="px-4 py-8 text-center text-sm text-[#849087]">Paid orders will appear here after a buyer checks out.</p> : <div className="divide-y divide-[#eef2ee]">{orderItems.map((item) => <article key={item.id} className="flex flex-wrap items-center gap-3 px-4 py-4 sm:px-5">
         <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-[#edf4ed] text-[#587b62]">{item.fulfillmentStatus === 'SHIPPED' ? <Truck size={18} /> : <PackageCheck size={18} />}</span>
         <div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold text-[#34483b]">{item.quantity} × {item.title}</p><p className="mt-1 text-xs text-[#829087]">Buyer: {item.order.buyer.displayName || 'QuickResell buyer'} · {item.paymentStatus === 'PAID' ? 'Paid' : 'Payment not confirmed'} · {item.fulfillmentStatus === 'PENDING_HANDOFF' ? 'Awaiting fulfillment' : item.fulfillmentStatus === 'READY_FOR_PICKUP' ? 'Ready for pickup' : item.fulfillmentStatus === 'SHIPPED' ? 'Shipped' : 'Received'}</p><p className="mt-0.5 text-[11px] text-[#929d96]">Order {item.order.id} · {new Date(item.order.createdAt).toLocaleDateString()}</p></div>
