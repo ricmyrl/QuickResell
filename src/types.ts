@@ -49,8 +49,21 @@ export type MarketplaceListing = {
   quantityAvailable: number
   category: string
   location: string
+  latitude?: number | null
+  longitude?: number | null
+  commentsCount?: number
   image: string
   seller: { id: string; displayName: string; avatarUrl?: string | null; trustScore: number; isCampusVerified?: boolean }
+}
+
+export type ProductComment = {
+  id: string
+  content: string
+  createdAt: string
+  user: { id: string; displayName: string | null; avatarUrl: string | null }
+  likeCount: number
+  likedByMe: boolean
+  replies: ProductComment[]
 }
 
 export type ShoppingCartItem = {

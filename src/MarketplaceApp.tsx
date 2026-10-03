@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { Bell, Bookmark, Compass, GraduationCap, ImagePlus, LayoutDashboard, Search, ShieldCheck, ShoppingBag, ShoppingCart, Sparkles, Store, X } from 'lucide-react'
+import { Bell, BellDot, Bookmark, Compass, GraduationCap, ImagePlus, LayoutDashboard, Search, ShieldCheck, ShoppingBag, ShoppingCart, Sparkles, Store, X } from 'lucide-react'
 import type { Session } from '@supabase/supabase-js'
 import { AuctionRoom } from './components/auction/AuctionRoom'
 import { BidAdvert } from './components/auction/BidAdvert'
@@ -67,10 +67,12 @@ export default function MarketplaceApp() {
   const [categories, setCategories] = useState<string[]>([])
   const [watchlistIds, setWatchlistIds] = useState<string[]>([])
   const [auctionWatchlistRules, setAuctionWatchlistRules] = useState<AuctionWatchlistRule[]>([])
+  const watchlistBidValues = useRef(new Map<string, number>())
+  const [watchlistBidNotifications, setWatchlistBidNotifications] = useState<string[]>([])
+  const [recentWatchlistBidIds, setRecentWatchlistBidIds] = useState<string[]>([])
   const [watchlistLoading, setWatchlistLoading] = useState(false)
   const [watchlistError, setWatchlistError] = useState('')
   const [watchlistSavingId, setWatchlistSavingId] = useState<string | null>(null)
-  const [preparedWatchlistDraft, setPreparedWatchlistDraft] = useState<{ auctionRoomId: string; maxBid: number; bidStep: number } | null>(null)
   const pendingAuctionNavigation = useRef(false)
   const nextViewNavigation = useRef<View | null>(null)
   const [session, setSession] = useState<Session | null>(null)
@@ -92,6 +94,8 @@ export default function MarketplaceApp() {
   const selectedAuction = auctions.find((auction) => auction.id === selectedId) ?? sellerAuctions.find((auction) => auction.id === selectedId) ?? null
   const dataKey = session ? `${session.user.id}:${emailConfirmed}` : 'public'
   const dataLoading = authLoading || loadedUserId !== dataKey
+  const activeWatchlistCount = auctionWatchlistRules.filter((rule) => rule.auction.status === 'ACTIVE').length
+  const unreadWatchlistBidCount = watchlistBidNotifications.length
 
   const setAuthMode = (mode: AuthMode | null, nextPath?: string) => {
     if (mode) {
@@ -134,6 +138,11 @@ export default function MarketplaceApp() {
     }
     setViewState(nextView)
   }
+  const openWatchlist = () => {
+    setWatchlistBidNotifications([])
+    setSelectedId(null)
+    setView('watchlist')
+  }
 
   useEffect(() => {
     if (!isKnownPath(location.pathname)) navigate('/', { replace: true })
@@ -162,6 +171,10 @@ export default function MarketplaceApp() {
         setCompletedAuctions(null)
         setLoadedUserId(null)
         setDataError('')
+        watchlistBidValues.current.clear()
+        setAuctionWatchlistRules([])
+        setWatchlistBidNotifications([])
+        setRecentWatchlistBidIds([])
       }
       setAuthLoading(false)
     })
@@ -232,9 +245,11 @@ export default function MarketplaceApp() {
   }, [session, emailConfirmed, authLoading, dataKey, dataRetry])
 
   useEffect(() => {
-    if (view !== 'watchlist') return
     if (!session || !emailConfirmed) {
       setAuctionWatchlistRules([])
+      watchlistBidValues.current.clear()
+      setWatchlistBidNotifications([])
+      setRecentWatchlistBidIds([])
       setWatchlistLoading(false)
       setWatchlistError('')
       return
@@ -244,14 +259,21 @@ export default function MarketplaceApp() {
     setWatchlistLoading(true)
     setWatchlistError('')
     void getAuctionWatchlist(session).then((rules) => {
-      if (!cancelled) setAuctionWatchlistRules(rules)
+      if (!cancelled) {
+        for (const rule of rules) {
+          if (!watchlistBidValues.current.has(rule.auctionRoomId)) {
+            watchlistBidValues.current.set(rule.auctionRoomId, rule.auction.currentHighestBid)
+          }
+        }
+        setAuctionWatchlistRules(rules)
+      }
     }).catch((caught: unknown) => {
       if (!cancelled) setWatchlistError(caught instanceof Error ? caught.message : 'Your auction watchlist could not be loaded.')
     }).finally(() => {
       if (!cancelled) setWatchlistLoading(false)
     })
     return () => { cancelled = true }
-  }, [view, session, emailConfirmed, dataRetry])
+  }, [session, emailConfirmed, dataRetry])
 
   useEffect(() => {
     if (!toast) return
@@ -296,16 +318,58 @@ export default function MarketplaceApp() {
     showToast(error?.message ?? 'A new confirmation link has been sent.', error ? 'error' : 'success')
   }
 
+  const updateWatchedAuction = (roomId: string, patch: Partial<Auction>) => {
+    const previousBid = watchlistBidValues.current.get(roomId)
+    const updatedBid = typeof patch.currentHighestBid === 'number'
+      ? Math.max(previousBid ?? patch.currentHighestBid, patch.currentHighestBid)
+      : previousBid
+    const bidChanged = previousBid !== undefined && updatedBid !== undefined && updatedBid > previousBid
+    if (updatedBid !== undefined) watchlistBidValues.current.set(roomId, updatedBid)
+
+    setAuctionWatchlistRules((current) => {
+      const index = current.findIndex((rule) => rule.auctionRoomId === roomId)
+      if (index < 0) return current
+      const rule = current[index]
+      if (!rule) return current
+      const updatedRule: AuctionWatchlistRule = {
+        ...rule,
+        auction: {
+          ...rule.auction,
+          ...patch,
+          ...(updatedBid !== undefined ? { currentHighestBid: updatedBid } : {}),
+        },
+      }
+      const remaining = current.filter((item) => item.auctionRoomId !== roomId)
+      return bidChanged ? [updatedRule, ...remaining] : [...remaining.slice(0, index), updatedRule, ...remaining.slice(index)]
+    })
+
+    if (bidChanged) {
+      setWatchlistBidNotifications((current) => current.includes(roomId) ? current : [roomId, ...current])
+      setRecentWatchlistBidIds((current) => [roomId, ...current.filter((id) => id !== roomId)])
+    }
+  }
+
   const updateRoom = (roomId: string, patch: Partial<Auction>) => {
     setAuctions((items) => items.map((item) => item.id === roomId ? { ...item, ...patch } : item))
     setSellerAuctions((items) => items.map((item) => item.id === roomId ? { ...item, ...patch } : item))
+    updateWatchedAuction(roomId, patch)
   }
 
   useAuctionFeedRealtime({
     onRoomUpdate: (patch) => updateRoom(patch.id, patch),
-    onBid: (roomId, bid) => setAuctions((items) => items.map((item) => item.id === roomId
-      ? { ...item, currentHighestBid: Math.max(item.currentHighestBid, bid.amount), highestBidderId: bid.bidder.id, bids: [bid, ...item.bids.filter((existing) => existing.id !== bid.id)] }
-      : item)),
+    onBid: (roomId, bid) => {
+      const updatedBid = watchlistBidValues.current.get(roomId)
+      updateWatchedAuction(roomId, {
+        currentHighestBid: Math.max(updatedBid ?? bid.amount, bid.amount),
+        highestBidderId: bid.bidder.id,
+      })
+      setAuctions((items) => items.map((item) => item.id === roomId
+        ? { ...item, currentHighestBid: Math.max(item.currentHighestBid, bid.amount), highestBidderId: bid.bidder.id, bids: [bid, ...item.bids.filter((existing) => existing.id !== bid.id)] }
+        : item))
+      setSellerAuctions((items) => items.map((item) => item.id === roomId
+        ? { ...item, currentHighestBid: Math.max(item.currentHighestBid, bid.amount), highestBidderId: bid.bidder.id, bids: [bid, ...item.bids.filter((existing) => existing.id !== bid.id)] }
+        : item))
+    },
   })
 
   const handleBid = async (room: Auction, amount: number) => {
@@ -435,7 +499,12 @@ export default function MarketplaceApp() {
 
   const handleListingCreated = (listing: MarketplaceListing) => {
     setOwnListings((current) => [listing, ...current.filter((item) => item.id !== listing.id)])
-    showToast(`${listing.title} is now listed for campus buyers.`)
+    showToast(`${listing.title} is now listed for local buyers.`)
+  }
+
+  const handleListingUpdated = (listing: MarketplaceListing) => {
+    setOwnListings((current) => current.map((item) => item.id === listing.id ? listing : item))
+    setListings((current) => current.map((item) => item.id === listing.id ? listing : item))
   }
 
   const handleSaveAuctionRule = async (auctionRoomId: string, rule: Pick<AuctionWatchlistRule, 'maxBid' | 'bidStep' | 'autoBidEnabled'> & { authorizationConfirmed: boolean }) => {
@@ -451,8 +520,8 @@ export default function MarketplaceApp() {
     setWatchlistSavingId(auctionRoomId)
     try {
       const result = await saveAuctionWatchlistRule(auctionRoomId, rule, session)
+      watchlistBidValues.current.set(auctionRoomId, result.rule.auction.currentHighestBid)
       setAuctionWatchlistRules((current) => [result.rule, ...current.filter((item) => item.auctionRoomId !== auctionRoomId)])
-      setPreparedWatchlistDraft(null)
       if (result.emailNotified) {
         showToast('Scout email alert sent to your inbox.')
       } else if (result.autoBidPlaced) {
@@ -473,13 +542,46 @@ export default function MarketplaceApp() {
 
   const handleRemoveAuctionRule = async (auctionRoomId: string) => {
     if (!session) return
+    setWatchlistSavingId(auctionRoomId)
     try {
       await removeAuctionWatchlistRule(auctionRoomId, session)
+      watchlistBidValues.current.delete(auctionRoomId)
       setAuctionWatchlistRules((current) => current.filter((rule) => rule.auctionRoomId !== auctionRoomId))
+      setWatchlistBidNotifications((current) => current.filter((id) => id !== auctionRoomId))
+      setRecentWatchlistBidIds((current) => current.filter((id) => id !== auctionRoomId))
       showToast('Auction removed from your watchlist.')
     } catch (caught) {
       showToast(caught instanceof Error ? caught.message : 'This auction could not be removed.', 'error')
+    } finally {
+      setWatchlistSavingId(null)
     }
+  }
+
+  const handleToggleAuctionWatchlist = async (auction: Auction) => {
+    if (!session) {
+      setAuthMode('signin')
+      return
+    }
+    if (!emailConfirmed) {
+      showToast('Confirm your email before saving auctions to your watchlist.', 'error')
+      return
+    }
+    if (auctionWatchlistRules.some((rule) => rule.auctionRoomId === auction.id)) {
+      await handleRemoveAuctionRule(auction.id)
+      return
+    }
+
+    const maxBid = Math.min(10_000_000, auction.currentHighestBid + 5)
+    if (!Number.isFinite(maxBid) || maxBid <= auction.currentHighestBid) {
+      showToast('This auction has reached the maximum supported watchlist bid.', 'error')
+      return
+    }
+    await handleSaveAuctionRule(auction.id, {
+      maxBid,
+      bidStep: Math.min(5, maxBid),
+      autoBidEnabled: false,
+      authorizationConfirmed: false,
+    })
   }
 
   const prepareAuctionRule = (auction: Auction, maxBid: number, bidStep: number) => {
@@ -489,9 +591,14 @@ export default function MarketplaceApp() {
       showToast('Currency conversion is unavailable. Try again when rates load.', 'error')
       return
     }
-    setPreparedWatchlistDraft({ auctionRoomId: auction.id, maxBid: maxBidUsd, bidStep: bidStepUsd })
     setSelectedId(null)
     setView('watchlist')
+    void handleSaveAuctionRule(auction.id, {
+      maxBid: maxBidUsd,
+      bidStep: bidStepUsd,
+      autoBidEnabled: false,
+      authorizationConfirmed: false,
+    })
   }
 
   const handleScoutFeedback = async (input: { messageId: string; intent: string; helpful: boolean }) => {
@@ -596,27 +703,27 @@ export default function MarketplaceApp() {
     <button type="button" onClick={() => { setView('feed'); setSelectedId(null) }} className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition-colors ${view === 'feed' && !selectedId ? 'bg-[#edf4ed] text-[#2d5d4c]' : 'text-[#78867e] hover:bg-[#f1f4f1] hover:text-[#263b33]'}`}><Compass size={17} />Live auctions<span className="ml-auto rounded-full bg-white px-2 py-0.5 text-[10px] text-[#74847a]">{auctions.filter((item) => item.status === 'ACTIVE').length}</span></button>
     <button type="button" onClick={() => { setView('shop'); setSelectedId(null) }} className={`mt-1 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition-colors ${view === 'shop' ? 'bg-[#edf4ed] text-[#2d5d4c]' : 'text-[#78867e] hover:bg-[#f1f4f1] hover:text-[#263b33]'}`}><Store size={17} />Shop</button>
     <button type="button" onClick={() => { setView('cart'); setSelectedId(null) }} className={`mt-1 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition-colors ${view === 'cart' ? 'bg-[#edf4ed] text-[#2d5d4c]' : 'text-[#78867e] hover:bg-[#f1f4f1] hover:text-[#263b33]'}`}><ShoppingCart size={17} />Cart<span className="ml-auto rounded-full bg-white px-2 py-0.5 text-[10px] text-[#74847a]">{userCart.items.reduce((sum, item) => sum + item.quantity, 0)}</span></button>
-    <button type="button" onClick={() => { setSelectedId(null); setView('watchlist') }} className={`mt-1 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition-colors ${view === 'watchlist' ? 'bg-[#edf4ed] text-[#2d5d4c]' : 'text-[#78867e] hover:bg-[#f1f4f1] hover:text-[#263b33]'}`}><Bookmark size={17} />Watchlist<span className="ml-auto rounded-full bg-white px-2 py-0.5 text-[10px] text-[#74847a]">{auctionWatchlistRules.length}</span></button>
+    <button type="button" onClick={openWatchlist} aria-label={unreadWatchlistBidCount > 0 ? `Watchlist, ${unreadWatchlistBidCount} new bid updates` : 'Watchlist'} className={`mt-1 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition-colors ${view === 'watchlist' ? 'bg-[#edf4ed] text-[#2d5d4c]' : 'text-[#78867e] hover:bg-[#f1f4f1] hover:text-[#263b33]'}`}><span className="relative"><Bookmark size={17} />{unreadWatchlistBidCount > 0 && <BellDot size={12} className="absolute -right-2 -top-2 rounded-full bg-white text-[#d94b3d]" />}</span>Watchlist<span className="ml-auto flex items-center gap-1.5">{unreadWatchlistBidCount > 0 && <span className="rounded-full bg-[#d94b3d] px-1.5 py-0.5 text-[9px] font-bold text-white">{Math.min(unreadWatchlistBidCount, 9)}</span>}<span className="rounded-full bg-white px-2 py-0.5 text-[10px] text-[#74847a]">{activeWatchlistCount}</span></span></button>
     <button type="button" onClick={() => { setView('dashboard'); setSelectedId(null) }} className={`mt-1 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition-colors ${view === 'dashboard' ? 'bg-[#edf4ed] text-[#2d5d4c]' : 'text-[#78867e] hover:bg-[#f1f4f1] hover:text-[#263b33]'}`}><LayoutDashboard size={17} />Seller studio{sellerRows.some((item) => item.status === 'PENDING_APPROVAL') && <span className="ml-auto size-2 rounded-full bg-[#df704a]" />}</button>
   </>
 
   return authMode ? <AuthPage initialMode={authMode} returnTo={returnPath(location.state)} onBack={() => setAuthMode(null)} onAuthenticated={() => { setAuthMode(null); showToast('You’re signed in. Welcome to Quick Resell.') }} /> : <div className="min-h-screen bg-[#f5f7f5] text-[#192724]">
     <header className="sticky top-0 z-30 flex h-[68px] items-center gap-3 border-b border-[#e6ebe7] bg-white/95 px-3 backdrop-blur-md sm:gap-4 sm:px-6 lg:px-8">
       <button type="button" onClick={() => { setView('feed'); setSelectedId(null) }} className="flex shrink-0 items-center gap-2.5"><span className="grid size-9 place-items-center rounded-xl bg-[#d4f06b] text-[#243a33]"><ShoppingBag size={19} strokeWidth={2.5} /></span><span className="font-display text-[17px] font-bold tracking-[-.03em]">quick<span className="text-[#70917c]">resell</span></span></button>
-      <div className={`relative mx-auto w-full max-w-[540px] ${searchOpen ? 'block' : 'hidden'} md:block`}><Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#96a19b]" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search finds around campus" className="h-10 w-full rounded-xl border border-[#e7ece8] bg-[#f7f9f7] pl-10 pr-4 text-sm outline-none transition focus:border-[#9ab4a2] focus:bg-white" />{search && <div className="absolute left-0 right-0 top-12 z-40 overflow-hidden rounded-xl border border-[#e6ebe7] bg-white shadow-lg">{searchResults.map((auction) => <button key={auction.id} type="button" onClick={() => { setSelectedId(auction.id); setSearch(''); setSearchOpen(false) }} className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-[#f5f8f5]"><img src={auction.image} alt="" className="size-10 rounded-lg object-cover" /><span className="min-w-0 flex-1 truncate text-sm font-semibold">{auction.title}</span><span className="text-xs text-[#74847a]">${auction.currentHighestBid}</span></button>)}{!searchResults.length && <p className="p-4 text-sm text-[#849189]">No matching live listings.</p>}</div>}</div>
+      <div className={`relative mx-auto w-full max-w-[540px] ${searchOpen ? 'block' : 'hidden'} md:block`}><Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#96a19b]" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search marketplace" className="h-10 w-full rounded-xl border border-[#e7ece8] bg-[#f7f9f7] pl-10 pr-4 text-sm outline-none transition focus:border-[#9ab4a2] focus:bg-white" />{search && <div className="absolute left-0 right-0 top-12 z-40 overflow-hidden rounded-xl border border-[#e6ebe7] bg-white shadow-lg">{searchResults.map((auction) => <button key={auction.id} type="button" onClick={() => { setSelectedId(auction.id); setSearch(''); setSearchOpen(false) }} className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-[#f5f8f5]"><img src={auction.image} alt="" className="size-10 rounded-lg object-cover" /><span className="min-w-0 flex-1 truncate text-sm font-semibold">{auction.title}</span><span className="text-xs text-[#74847a]">${auction.currentHighestBid}</span></button>)}{!searchResults.length && <p className="p-4 text-sm text-[#849189]">No matching live listings.</p>}</div>}</div>
       <div className="ml-auto flex shrink-0 items-center gap-1.5"><span className={`hidden items-center gap-1.5 rounded-full px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-[.08em] sm:inline-flex ${dataError ? 'bg-[#fff1ee] text-[#9c493d]' : 'bg-[#ebf5ee] text-[#477358]'}`}><span className={`size-1.5 rounded-full ${dataError ? 'bg-[#c45c4d]' : 'bg-[#66a178]'}`} />{apiStatus}</span><span className="relative"><IconButton label={`Open cart, ${userCart.items.reduce((sum, item) => sum + item.quantity, 0)} items`} onClick={() => { setSelectedId(null); setView('cart') }}><ShoppingCart size={18} /></IconButton>{userCart.items.length > 0 && <span className="pointer-events-none absolute right-0 top-0 grid min-h-4 min-w-4 place-items-center rounded-full bg-[#d94b3d] px-1 text-[9px] font-bold text-white">{userCart.items.reduce((sum, item) => sum + item.quantity, 0)}</span>}</span><div className="relative"><IconButton label="Notifications" onClick={() => setNotificationsOpen((current) => !current)}><Bell size={17} /></IconButton>{unreadNotifications > 0 && <span className="pointer-events-none absolute -right-1 -top-1 grid min-h-4 min-w-4 place-items-center rounded-full bg-[#d94b3d] px-1 text-[9px] font-bold text-white">{Math.min(unreadNotifications, 9)}</span>}{notificationsOpen && <div className="absolute right-0 top-12 z-50 w-[320px] overflow-hidden rounded-2xl border border-[#e4eae5] bg-white shadow-2xl"><div className="flex items-center justify-between border-b border-[#eef2ee] px-4 py-3"><div><p className="text-[10px] font-bold uppercase tracking-[.12em] text-[#909c96]">Alerts</p><p className="mt-0.5 text-sm font-semibold text-[#2a4035]">Your marketplace feed</p></div>{unreadNotifications > 0 && <button type="button" onClick={() => void handleMarkAllNotificationsRead()} className="text-[11px] font-semibold text-[#3d6e5d] underline-offset-2 hover:underline">Clear all</button>}</div><div className="max-h-[340px] overflow-y-auto p-2">{notifications.length === 0 ? <div className="rounded-xl bg-[#f7faf7] px-3 py-5 text-center text-xs text-[#7d8a84]">No notifications yet. New bids and price updates will appear here.</div> : notifications.slice(0, 8).map((notification) => <button key={notification.id} type="button" onClick={() => { setNotificationsOpen(false); void handleNotificationRead(notification.id) }} className={`flex w-full items-start gap-3 rounded-xl border px-3 py-3 text-left transition ${notification.isRead ? 'border-transparent bg-[#f9faf9]' : 'border-[#e4f0e7] bg-[#edf8f1]'}`}><span className={`mt-0.5 grid size-7 place-items-center rounded-full ${notification.type === 'OUTBID' || notification.type === 'AUCTION_CLOSED' ? 'bg-[#fff3ef] text-[#c8574a]' : notification.type === 'AUCTION_WON' || notification.type === 'LISTING_SOLD' ? 'bg-[#eaf9ea] text-[#3c7d5b]' : 'bg-[#edf2ff] text-[#536ab9]'}`}><Bell size={14} /></span><span className="min-w-0 flex-1"><span className="block text-[11px] font-semibold uppercase tracking-[.08em] text-[#8a9891]">{notification.type.replace(/_/g, ' ').toLowerCase()}</span><span className="mt-0.5 block text-sm font-semibold text-[#21372f]">{notification.title}</span><span className="mt-1 block text-xs leading-5 text-[#75837d]">{notification.message}</span></span></button> )}</div></div>}</div>{session ? <button type="button" onClick={() => void supabase?.auth.signOut()} className="ml-1 flex items-center gap-2 rounded-full border border-[#e7ece8] p-1 pr-3"><span aria-hidden="true" className="grid size-8 place-items-center rounded-full bg-[#e9f0e8] text-xs font-bold text-[#456555]">{(session.user.user_metadata.full_name ?? session.user.email ?? '?').slice(0, 1).toUpperCase()}</span><span className="hidden max-w-24 truncate text-xs font-semibold sm:block">{session.user.user_metadata.full_name ?? session.user.email}</span></button> : <Button variant="secondary" onClick={() => setAuthMode('signin')} className="ml-1 min-h-9 rounded-lg px-3 text-xs">Sign in</Button>}</div>
     </header>
 
-    <div className="border-b border-[#e4eae5] bg-white"><div className="mx-auto flex max-w-[1640px] flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-6 lg:px-8"><div><p className="text-sm font-semibold text-[#2b4036]">Have something to sell?</p><p className="mt-0.5 text-xs text-[#7a8781]">Add product photos and list it for your campus.</p></div><Button variant="secondary" onClick={openSellerStudio} icon={<ImagePlus size={16} />}>Sell an item</Button></div></div>
+    <div className="border-b border-[#e4eae5] bg-white"><div className="mx-auto flex max-w-[1640px] flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-6 lg:px-8"><div><p className="text-sm font-semibold text-[#2b4036]">Have something to sell?</p><p className="mt-0.5 text-xs text-[#7a8781]">Add product photos and list it for local buyers.</p></div><Button variant="secondary" onClick={openSellerStudio} icon={<ImagePlus size={16} />}>Sell an item</Button></div></div>
 
     <div className="mx-auto grid max-w-[1640px] grid-cols-1 md:grid-cols-[180px_minmax(0,1fr)] xl:grid-cols-[220px_minmax(0,1fr)_270px]">
-      <aside className="sticky top-[68px] hidden h-[calc(100vh-68px)] min-h-0 flex-col overflow-y-auto overscroll-contain border-r border-[#e6ebe7] bg-[#f9faf9] px-4 py-6 md:flex"><nav className="space-y-1">{nav}</nav><div className="mt-auto rounded-[16px] bg-[#e9f0e8] p-4"><div className="mb-3 grid size-8 place-items-center rounded-lg bg-white text-[#537666]"><GraduationCap size={18} /></div><p className="font-display text-sm font-semibold text-[#2f4a3d]">Campus verified</p><p className="mt-1 text-[11px] leading-4 text-[#72867a]">Trade with people who are right around the corner.</p><div className="mt-3 flex items-center gap-1 text-[10px] font-bold uppercase tracking-[.1em] text-[#63816f]"><ShieldCheck size={12} />Trust matters here</div></div></aside>
+      <aside className="sticky top-[68px] hidden h-[calc(100vh-68px)] min-h-0 flex-col overflow-y-auto overscroll-contain border-r border-[#e6ebe7] bg-[#f9faf9] px-4 py-6 md:flex"><nav className="space-y-1">{nav}</nav><div className="mt-auto rounded-[16px] bg-[#e9f0e8] p-4"><div className="mb-3 grid size-8 place-items-center rounded-lg bg-white text-[#537666]"><GraduationCap size={18} /></div><p className="font-display text-sm font-semibold text-[#2f4a3d]">Trusted sellers</p><p className="mt-1 text-[11px] leading-4 text-[#72867a]">Trade with people who are right around the corner.</p><div className="mt-3 flex items-center gap-1 text-[10px] font-bold uppercase tracking-[.1em] text-[#63816f]"><ShieldCheck size={12} />Trust matters here</div></div></aside>
 
-      {!selectedAuction && view !== 'watchlist' && <button type="button" aria-label="Open auction watchlist" title="Open auction watchlist" onClick={() => { setSelectedId(null); setView('watchlist') }} className="fixed bottom-[154px] right-4 z-40 inline-flex h-12 w-12 transform items-center justify-center rounded-full border border-[#cfe4d5] bg-[#dfeee2] text-[#244737] shadow-[0_12px_28px_rgba(35,56,43,.14)] backdrop-blur-sm transition-transform duration-150 hover:bg-[#d2ebd8] active:translate-y-[1px] lg:hidden"><Bookmark size={17} />{auctionWatchlistRules.length > 0 && <span className="absolute -right-1 -top-1 grid min-h-4 min-w-4 place-items-center rounded-full bg-[#d4f06b] px-1 text-[9px] font-bold text-[#213b30]">{Math.min(auctionWatchlistRules.length, 9)}</span>}</button>}
+      {!selectedAuction && view !== 'watchlist' && <button type="button" aria-label={unreadWatchlistBidCount > 0 ? `Open auction watchlist, ${unreadWatchlistBidCount} new bid updates` : 'Open auction watchlist'} title="Open auction watchlist" onClick={openWatchlist} className="fixed bottom-[154px] right-4 z-40 inline-flex h-12 w-12 transform items-center justify-center rounded-full border border-[#cfe4d5] bg-[#dfeee2] text-[#244737] shadow-[0_12px_28px_rgba(35,56,43,.14)] backdrop-blur-sm transition-transform duration-150 hover:bg-[#d2ebd8] active:translate-y-[1px] lg:hidden"><Bookmark size={17} />{unreadWatchlistBidCount > 0 ? <span className="absolute -right-1 -top-1"><BellDot size={16} className="rounded-full bg-white text-[#d94b3d]" /></span> : activeWatchlistCount > 0 && <span className="absolute -right-1 -top-1 grid min-h-4 min-w-4 place-items-center rounded-full bg-[#d4f06b] px-1 text-[9px] font-bold text-[#213b30]">{Math.min(activeWatchlistCount, 9)}</span>}</button>}
       <NavigationAssistant auctions={auctions} listings={listings} dataReady={!dataLoading && !dataError} onNavigate={(destination) => { if (destination === 'dashboard') { openSellerStudio(); return } setSelectedId(null); setView(destination) }} onOpenAuction={(auction) => { setSelectedId(auction.id); setViewState('feed') }} onOpenListing={handleScoutOpenListing} onPrepareRule={prepareAuctionRule} currentUserId={currentUserId} auctionWatchlistRules={auctionWatchlistRules} onFeedback={(feedback) => void handleScoutFeedback(feedback)} onSupportRequest={handleScoutSupportRequest} signedIn={Boolean(session)} emailConfirmed={emailConfirmed} onSignIn={() => setAuthMode('signin')} />
-      {view === 'watchlist' ? <main className="min-w-0 px-4 pb-24 pt-6 sm:px-6 lg:px-7 lg:pb-8 lg:pt-7"><AuctionWatchlistPage auctions={auctions} rules={auctionWatchlistRules} loading={watchlistLoading} error={watchlistError} savingId={watchlistSavingId} initialDraft={preparedWatchlistDraft} onSave={handleSaveAuctionRule} onRemove={handleRemoveAuctionRule} onOpenAuction={(auction) => setSelectedId(auction.id)} onRequestSignIn={() => setAuthMode('signin')} signedIn={Boolean(session)} emailConfirmed={emailConfirmed} /></main> : <main className="min-w-0 px-4 pb-24 pt-6 sm:px-6 lg:px-7 lg:pb-8 lg:pt-7">
+      {view === 'watchlist' ? <main className="min-w-0 px-4 pb-24 pt-6 sm:px-6 lg:px-7 lg:pb-8 lg:pt-7"><AuctionWatchlistPage rules={auctionWatchlistRules} recentBidAuctionIds={recentWatchlistBidIds} loading={watchlistLoading} error={watchlistError} savingId={watchlistSavingId} onSave={handleSaveAuctionRule} onRemove={handleRemoveAuctionRule} onOpenAuction={(auction) => setSelectedId(auction.id)} onRequestSignIn={() => setAuthMode('signin')} onBrowseAuctions={() => setView('feed')} signedIn={Boolean(session)} emailConfirmed={emailConfirmed} /></main> : <main className="min-w-0 px-4 pb-24 pt-6 sm:px-6 lg:px-7 lg:pb-8 lg:pt-7">
         {session && !emailConfirmed && <div role="status" className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#ead9b0] bg-[#fff9e9] px-4 py-3 text-sm text-[#765b22]"><span>Confirm your email to bid, sell, message sellers, or place orders.</span><Button variant="secondary" onClick={() => void resendConfirmation()} className="min-h-8 rounded-lg px-3 text-xs">Resend confirmation</Button></div>}
-        {authLoading ? <div className="grid min-h-72 place-items-center rounded-xl border border-[#e4eae5] bg-white text-sm text-[#849189]">Connecting to your account…</div> : dataError ? <div role="alert" className="mx-auto mt-12 max-w-lg rounded-xl border border-[#f0d7d2] bg-white p-6 text-center"><h1 className="font-display text-xl font-semibold text-[#263b33]">Marketplace data unavailable</h1><p className="mt-2 break-words text-sm text-[#7a8781]">{dataError}</p><Button variant="secondary" onClick={() => { setDataError(''); setLoadedUserId(null); setDataRetry((attempt) => attempt + 1) }} className="mt-4">Retry</Button></div> : dataLoading ? <div className="grid min-h-72 place-items-center rounded-xl border border-[#e4eae5] bg-white text-sm text-[#849189]">Loading marketplace data…</div> : selectedAuction ? <AuctionRoom auction={selectedAuction} userId={currentUserId} onBack={() => setSelectedId(null)} onBid={(amount) => handleBid(selectedAuction, amount)} onExpire={() => handleExpire(selectedAuction)} onNotice={showToast} onRoomUpdate={(patch) => updateRoom(selectedAuction.id, patch)} onVerdict={(decision) => handleVerdict(selectedAuction, decision)} /> : view === 'dashboard' ? <SellerDashboard auctions={sellerRows} userId={currentUserId} trustScore={trustScore} completedAuctions={completedAuctions} session={session} emailConfirmed={emailConfirmed} ownListings={ownListings} onRequestSignIn={() => setAuthMode('signin')} onListingCreated={handleListingCreated} onVerdict={handleVerdict} onNotice={showToast} /> : view === 'shop' ? <StorePage listings={listings} categories={categories} error={shopError} cartHas={(postId) => userCart.items.some((item) => item.postId === postId)} watchlistIds={watchlistIds} onToggleSaved={(postId) => void handleToggleSaved(postId)} onAdd={(listing) => void handleAddToCart(listing)} onOpenCart={() => setView('cart')} /> : view === 'cart' ? <ShoppingCartPage items={userCart.items} loading={userCart.loading} error={userCart.error} onShop={() => setView('shop')} onSetQuantity={userCart.setQuantity} onRemove={userCart.remove} onCheckout={handlePlaceOrder} onRefresh={userCart.refresh} /> : <GlobalFeed auctions={auctions} categories={categories} onOpen={(auction) => setSelectedId(auction.id)} />}
+        {authLoading ? <div className="grid min-h-72 place-items-center rounded-xl border border-[#e4eae5] bg-white text-sm text-[#849189]">Connecting to your account…</div> : dataError ? <div role="alert" className="mx-auto mt-12 max-w-lg rounded-xl border border-[#f0d7d2] bg-white p-6 text-center"><h1 className="font-display text-xl font-semibold text-[#263b33]">Marketplace data unavailable</h1><p className="mt-2 break-words text-sm text-[#7a8781]">{dataError}</p><Button variant="secondary" onClick={() => { setDataError(''); setLoadedUserId(null); setDataRetry((attempt) => attempt + 1) }} className="mt-4">Retry</Button></div> : dataLoading ? <div className="grid min-h-72 place-items-center rounded-xl border border-[#e4eae5] bg-white text-sm text-[#849189]">Loading marketplace data…</div> : selectedAuction ? <AuctionRoom auction={selectedAuction} userId={currentUserId} onBack={() => setSelectedId(null)} onBid={(amount) => handleBid(selectedAuction, amount)} onExpire={() => handleExpire(selectedAuction)} onNotice={showToast} onRoomUpdate={(patch) => updateRoom(selectedAuction.id, patch)} onVerdict={(decision) => handleVerdict(selectedAuction, decision)} /> : view === 'dashboard' ? <SellerDashboard auctions={sellerRows} userId={currentUserId} trustScore={trustScore} completedAuctions={completedAuctions} session={session} emailConfirmed={emailConfirmed} ownListings={ownListings} onRequestSignIn={() => setAuthMode('signin')} onListingCreated={handleListingCreated} onListingUpdated={handleListingUpdated} onVerdict={handleVerdict} onNotice={showToast} /> : view === 'shop' ? <StorePage listings={listings} categories={categories} error={shopError} cartHas={(postId) => userCart.items.some((item) => item.postId === postId)} watchlistIds={watchlistIds} onToggleSaved={(postId) => void handleToggleSaved(postId)} onAdd={(listing) => void handleAddToCart(listing)} onOpenCart={() => setView('cart')} session={session} emailConfirmed={emailConfirmed} onRequestSignIn={() => setAuthMode('signin', '/shop')} /> : view === 'cart' ? <ShoppingCartPage items={userCart.items} loading={userCart.loading} error={userCart.error} onShop={() => setView('shop')} onSetQuantity={userCart.setQuantity} onRemove={userCart.remove} onCheckout={handlePlaceOrder} onRefresh={userCart.refresh} /> : <GlobalFeed auctions={auctions} categories={categories} watchlistIds={auctionWatchlistRules.map((rule) => rule.auctionRoomId)} savingWatchlistId={watchlistSavingId} watchlistLoading={watchlistLoading} currentUserId={currentUserId} onToggleWatchlist={(auction) => void handleToggleAuctionWatchlist(auction)} onOpen={(auction) => setSelectedId(auction.id)} />}
       </main>}
 
       {!selectedAuction && view === 'feed' && session && <aside className="hidden border-l border-[#e6ebe7] bg-[#f9faf9] px-4 py-6 xl:block"><div className="mb-6 flex items-center justify-between"><div><p className="text-[10px] font-bold uppercase tracking-[.12em] text-[#8b9891]">Your profile</p><p className="font-display mt-1 max-w-44 truncate text-sm font-semibold text-[#2b4036]">{session.user.user_metadata.full_name ?? session.user.email}</p></div>{session.user.user_metadata.avatar_url && <img src={session.user.user_metadata.avatar_url} alt="" className="size-10 rounded-full object-cover" />}</div>{trustScore !== null && completedAuctions !== null && <div className="rounded-[16px] border border-[#e4eae5] bg-white p-4"><div className="mb-3 flex items-center justify-between"><span className="text-xs font-semibold text-[#718078]">Seller standing</span><Sparkles size={14} className="text-[#9bad4e]" /></div><p className="font-display text-[31px] font-bold leading-none text-[#294339]">{trustScore}<span className="ml-1 text-sm font-semibold text-[#94a099]">/100</span></p><div className="mt-3"><TrustScoreBadge score={trustScore} completedAuctions={completedAuctions} noReserveHero /></div><p className="mt-3 border-t border-[#eff2ef] pt-3 text-[11px] leading-5 text-[#8a9690]">Your follow-through earns trust. Buyers can see your record in every room.</p></div>}<div className="mt-6"><div className="mb-3 flex items-center justify-between"><p className="text-xs font-bold uppercase tracking-[.1em] text-[#718078]">Ending soon</p></div><div className="space-y-2">{auctions.filter((item) => item.status === 'ACTIVE').slice(0, 3).map((item) => <button key={item.id} type="button" onClick={() => setSelectedId(item.id)} className="flex w-full items-center gap-2.5 rounded-xl border border-[#e8ede9] bg-white p-2 text-left transition hover:border-[#c9d8cd]"><img src={item.image} alt="" className="size-11 rounded-lg object-cover" /><span className="min-w-0 flex-1"><span className="block truncate text-xs font-semibold text-[#394b42]">{item.title}</span><span className="mt-1 block text-[10px] text-[#849189]">${item.currentHighestBid} · {item.bids.length} bids</span></span></button>)}</div></div><button type="button" onClick={() => { setView('dashboard'); setSelectedId(null) }} className="mt-6 w-full rounded-[14px] bg-[#dcecff] p-3.5 text-left"><span className="flex items-center gap-2 text-xs font-bold text-[#345b75]"><Store size={14} />Sell something nearby</span><span className="mt-1 block text-[11px] leading-4 text-[#57758b]">Create a listing in Seller Studio.</span></button></aside>}

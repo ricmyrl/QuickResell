@@ -1,6 +1,7 @@
 import type { Session } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabase'
-import type { MarketplaceListing } from '../types'
+import type { MarketplaceListing, ProductComment } from '../types'
+import type { Coordinates } from '../lib/geolocation'
 
 const pageHostApiUrl = typeof window !== 'undefined' && window.location.protocol === 'http:'
   ? `http://${window.location.hostname}:3000/api`
@@ -28,6 +29,7 @@ export type NewListing = {
   originalPrice?: number
   locationCampus: string
   quantityAvailable: number
+  coordinates?: Coordinates
 }
 
 type ApiListing = {
@@ -38,6 +40,8 @@ type ApiListing = {
   originalPrice?: number | null
   quantityAvailable: number
   locationCampus?: string | null
+  latitude?: number | null
+  longitude?: number | null
   category?: { name: string }
   images?: Array<{ url: string }>
   user?: { id: string; displayName?: string | null; avatarUrl?: string | null; trustScore?: number; isCampusVerified?: boolean }
@@ -51,12 +55,14 @@ function normalizeListing(listing: ApiListing): MarketplaceListing {
     price: listing.price,
     originalPrice: listing.originalPrice,
     quantityAvailable: listing.quantityAvailable,
-    category: listing.category?.name ?? 'Campus finds',
-    location: listing.locationCampus ?? 'Campus',
+    category: listing.category?.name ?? 'Uncategorized',
+    location: listing.locationCampus ?? 'Location not provided',
+    latitude: listing.latitude,
+    longitude: listing.longitude,
     image: listing.images?.[0]?.url ?? '',
     seller: {
       id: listing.user?.id ?? '',
-      displayName: listing.user?.displayName ?? 'Campus seller',
+      displayName: listing.user?.displayName ?? 'Seller',
       avatarUrl: listing.user?.avatarUrl,
       trustScore: listing.user?.trustScore ?? 50,
       isCampusVerified: listing.user?.isCampusVerified ?? false,
@@ -148,9 +154,17 @@ export async function createListing(
       imageUrls.push(storage.from(storageBucket).getPublicUrl(data.path).data.publicUrl)
     }
 
+    const { coordinates, ...listingDetails } = details
     const result = await apiRequest<{ listing: ApiListing }>('/listings', session, {
       method: 'POST',
-      body: JSON.stringify({ ...details, imageUrls }),
+      body: JSON.stringify({
+        ...listingDetails,
+        ...(coordinates ? {
+          latitude: coordinates.latitude,
+          longitude: coordinates.longitude,
+        } : {}),
+        imageUrls,
+      }),
     })
     return normalizeListing(result.listing)
   } catch (error) {
@@ -160,4 +174,49 @@ export async function createListing(
     }
     throw error
   }
+}
+
+export async function updateListingLocation(
+  listingId: string,
+  coordinates: Coordinates,
+  session: Session,
+): Promise<MarketplaceListing> {
+  const result = await apiRequest<{ listing: ApiListing }>(`/listings/${encodeURIComponent(listingId)}`, session, {
+    method: 'PUT',
+    body: JSON.stringify({
+      latitude: coordinates.latitude,
+      longitude: coordinates.longitude,
+    }),
+  })
+  return normalizeListing(result.listing)
+}
+
+export async function getProductComments(listingId: string, session?: Session | null): Promise<{ items: ProductComment[]; commentsCount: number }> {
+  return apiRequest<{ items: ProductComment[]; commentsCount: number }>(`/listings/${encodeURIComponent(listingId)}/comments`, session)
+}
+
+export async function addProductComment(
+  listingId: string,
+  content: string,
+  session: Session,
+  parentId?: string,
+): Promise<{ comment: ProductComment; commentsCount: number }> {
+  return apiRequest<{ comment: ProductComment; commentsCount: number }>(
+    `/listings/${encodeURIComponent(listingId)}/comments`,
+    session,
+    { method: 'POST', body: JSON.stringify({ content, ...(parentId ? { parentId } : {}) }) },
+  )
+}
+
+export async function setProductCommentReaction(
+  listingId: string,
+  commentId: string,
+  liked: boolean,
+  session: Session,
+): Promise<{ liked: boolean; likeCount: number }> {
+  return apiRequest<{ liked: boolean; likeCount: number }>(
+    `/listings/${encodeURIComponent(listingId)}/comments/${encodeURIComponent(commentId)}/reaction`,
+    session,
+    { method: liked ? 'POST' : 'DELETE' },
+  )
 }

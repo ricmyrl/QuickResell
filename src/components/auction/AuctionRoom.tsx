@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { ArrowLeft, ArrowUpRight, Clock3, Gavel, MapPin, ShieldCheck, Sparkles, Users } from 'lucide-react'
 import { motion } from 'framer-motion'
 import type { Auction, Bid } from '../../types'
@@ -6,6 +6,7 @@ import { useCountdown } from '../../hooks/useCountdown'
 import { useAuctionRealtime } from '../../hooks/useAuctionRealtime'
 import { LiveBadge, Badge } from '../common/Badge'
 import { Button } from '../common/Button'
+import { ImageLightbox } from '../common/ImageLightbox'
 import { TrustScoreBadge } from '../common/TrustScoreBadge'
 import { SellerVerdictModal } from '../dashboard/SellerVerdictModal'
 import type { Verdict } from '../../types'
@@ -22,7 +23,9 @@ export function AuctionRoom({ auction, userId, onBack, onBid, onExpire, onNotice
   const [bidding, setBidding] = useState(false)
   const [bids, setBids] = useState(auction.bids)
   const [hasClosed, setHasClosed] = useState(false)
-    const [verdictOpen, setVerdictOpen] = useState(false)
+  const [verdictOpen, setVerdictOpen] = useState(false)
+  const [imageOpen, setImageOpen] = useState(false)
+  const closeImage = useCallback(() => setImageOpen(false), [])
   const lastBidIds = useRef(new Set(auction.bids.map((bid) => bid.id)))
   const isSeller = userId === auction.sellerId
   const isActive = auction.status === 'ACTIVE' && !countdown.expired
@@ -52,7 +55,7 @@ export function AuctionRoom({ auction, userId, onBack, onBid, onExpire, onNotice
   const clock = countdown.days > 0 ? `${countdown.days}d ${String(countdown.hours).padStart(2, '0')}h` : `${String(countdown.hours).padStart(2, '0')}:${String(countdown.minutes).padStart(2, '0')}:${String(countdown.seconds).padStart(2, '0')}`
 
   return <motion.section className="min-w-0" initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }}><button type="button" onClick={onBack} className="mb-5 inline-flex items-center gap-2 text-sm font-semibold text-[#6f8078] hover:text-[#263b33]"><ArrowLeft size={16} />Back to the feed</button>
-    <div className="grid gap-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(320px,.85fr)]"><div className="overflow-hidden rounded-[20px] border border-[#e4eae5] bg-white"><div className="relative aspect-[1.34/1] max-h-[530px] bg-[#e8eeea]">{auction.image && <img src={auction.image} alt={auction.title} className="h-full w-full object-cover" />}<div className="absolute left-4 top-4 flex gap-2"><LiveBadge />{auction.noReserve && <Badge className="bg-white text-[#536522]">No reserve</Badge>}</div></div>
+    <div className="grid gap-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(320px,.85fr)]"><div className="overflow-hidden rounded-[20px] border border-[#e4eae5] bg-white"><div className="relative aspect-[1.34/1] max-h-[530px] bg-[#e8eeea]">{auction.image && <button type="button" onClick={() => setImageOpen(true)} aria-label={`View ${auction.title} photo`} className="size-full"><img src={auction.image} alt={auction.title} className="h-full w-full bg-white object-contain" /></button>}<div className="pointer-events-none absolute left-4 top-4 flex gap-2"><LiveBadge />{auction.noReserve && <Badge className="bg-white text-[#536522]">No reserve</Badge>}</div></div>
       <div className="p-5 sm:p-7"><div className="mb-3 flex flex-wrap items-center gap-2 text-xs text-[#819087]"><span className="font-semibold uppercase tracking-[.1em]">{auction.category}</span><span>·</span><span className="inline-flex items-center gap-1"><MapPin size={12} />{auction.location}</span></div><h1 className="font-display text-[27px] font-semibold leading-tight text-[#1c2b26]">{auction.title}</h1><p className="mt-3 max-w-2xl text-sm leading-6 text-[#718078]">{auction.description}</p><div className="mt-6 flex flex-wrap items-center justify-between gap-4 border-t border-[#edf0ed] pt-5"><div className="flex items-center gap-3">{auction.seller.avatarUrl && <img src={auction.seller.avatarUrl} alt="" className="size-10 rounded-full object-cover" />}<div><p className="text-sm font-semibold text-[#263b33]">{auction.seller.displayName}</p><TrustScoreBadge score={auction.seller.trustScore} completedAuctions={auction.seller.completedAuctions} compact /></div></div><div className="flex items-center gap-1.5 text-xs text-[#6d7c74]"><ShieldCheck size={15} className="text-[#5b8a71]" />Public room · seller accountability</div></div></div></div>
 
       <aside className="flex min-h-[600px] flex-col overflow-hidden rounded-[20px] border border-[#e4eae5] bg-white"><div className="flex items-start justify-between border-b border-[#edf0ed] px-5 py-4"><div><p className="text-[10px] font-bold uppercase tracking-[.13em] text-[#819087]">Live room</p><h2 className="font-display mt-1 text-lg font-semibold text-[#263b33]">Bidding floor</h2></div><span className="inline-flex items-center gap-1.5 rounded-full bg-[#f5f7f5] px-2.5 py-1.5 text-xs font-semibold text-[#62726a]"><Users size={13} />{bids.length} bids</span></div>
@@ -62,5 +65,6 @@ export function AuctionRoom({ auction, userId, onBack, onBid, onExpire, onNotice
         <div className="border-t border-[#edf0ed] px-5 py-3 text-[10px] leading-4 text-[#87938d]"><Sparkles size={12} className="mr-1 inline text-[#91a743]" />Every bid is public. The seller must confirm the winning bid when time runs out.</div>
       </aside></div>
     <SellerVerdictModal auction={auction} open={verdictOpen && auction.status === 'PENDING_APPROVAL'} onClose={() => setVerdictOpen(false)} onSubmit={async (decision) => { await onVerdict(decision); setVerdictOpen(false) }} />
+    {imageOpen && auction.image && <ImageLightbox src={auction.image} alt={auction.title} onClose={closeImage} />}
   </motion.section>
 }

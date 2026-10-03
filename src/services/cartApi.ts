@@ -22,7 +22,8 @@ export class CartApiError extends Error {
 
 type ApiPost = {
   id: string; title: string; description?: string | null; price: number; originalPrice?: number | null
-  quantityAvailable: number; locationCampus?: string | null
+  quantityAvailable: number; locationCampus?: string | null; latitude?: number | null; longitude?: number | null
+  _count?: { comments: number }
   category?: { name: string }
   images?: Array<{ url: string }>
   user?: { id: string; displayName?: string | null; avatarUrl?: string | null; trustScore?: number }
@@ -35,6 +36,8 @@ function normalizePost(post: ApiPost): MarketplaceListing {
     id: post.id, title: post.title, description: post.description ?? '', price: post.price,
     originalPrice: post.originalPrice, quantityAvailable: post.quantityAvailable,
     category: post.category?.name ?? 'Uncategorized', location: post.locationCampus ?? 'Location not provided',
+    latitude: post.latitude, longitude: post.longitude,
+    commentsCount: post._count?.comments ?? 0,
     image: post.images?.[0]?.url ?? '',
     seller: { id: post.user?.id ?? '', displayName: post.user?.displayName ?? '', avatarUrl: post.user?.avatarUrl, trustScore: post.user?.trustScore ?? 0 },
   }

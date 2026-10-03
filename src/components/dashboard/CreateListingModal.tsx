@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import type { Session } from '@supabase/supabase-js'
-import { ArrowLeft, ImagePlus, LoaderCircle, X } from 'lucide-react'
+import { ArrowLeft, ImagePlus, LoaderCircle, MapPin, X } from 'lucide-react'
 import type { MarketplaceListing } from '../../types'
 import { createListing, getListingCategories, type ListingCategory } from '../../services/listingApi'
+import { getCurrentLocation, type Coordinates } from '../../lib/geolocation'
 import { Button, IconButton } from '../common/Button'
 import { useCurrency } from '../../lib/CurrencyContext'
 
@@ -23,6 +24,9 @@ export function CreateListingPage({ onClose, session, onCreated }: {
   const [price, setPrice] = useState('')
   const [originalPrice, setOriginalPrice] = useState('')
   const [locationCampus, setLocationCampus] = useState('')
+  const [coordinates, setCoordinates] = useState<Coordinates | null>(null)
+  const [locationBusy, setLocationBusy] = useState(false)
+  const [locationError, setLocationError] = useState('')
   const [quantityAvailable, setQuantityAvailable] = useState('1')
   const [images, setImages] = useState<SelectedImage[]>([])
   const previewUrls = useRef(new Set<string>())
@@ -59,6 +63,8 @@ export function CreateListingPage({ onClose, session, onCreated }: {
     setPrice('')
     setOriginalPrice('')
     setLocationCampus('')
+    setCoordinates(null)
+    setLocationError('')
     setQuantityAvailable('1')
     images.forEach(({ previewUrl }) => {
       URL.revokeObjectURL(previewUrl)
@@ -66,6 +72,18 @@ export function CreateListingPage({ onClose, session, onCreated }: {
     })
     setImages([])
     setError('')
+  }
+
+  const addCurrentLocation = async () => {
+    setLocationBusy(true)
+    setLocationError('')
+    try {
+      setCoordinates(await getCurrentLocation())
+    } catch (caught) {
+      setLocationError(caught instanceof Error ? caught.message : 'Could not get your location.')
+    } finally {
+      setLocationBusy(false)
+    }
   }
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
@@ -97,6 +115,7 @@ export function CreateListingPage({ onClose, session, onCreated }: {
         ...(originalPrice.trim() && originalPriceUsd !== null ? { originalPrice: originalPriceUsd } : {}),
         locationCampus: locationCampus.trim(),
         quantityAvailable: Number(quantityAvailable),
+        ...(coordinates ? { coordinates } : {}),
       }, images.map(({ file }) => file), session)
       onCreated(listing)
       reset()
@@ -126,10 +145,10 @@ export function CreateListingPage({ onClose, session, onCreated }: {
         <label className="block"><span className="mb-1.5 block text-xs font-semibold text-[#43564b]">Price ({displayCurrency})</span><input type="number" required min="0" step="0.01" value={price} onChange={(event) => setPrice(event.target.value)} placeholder="0.00" className="h-11 w-full rounded-xl border border-[#dfe7e1] px-3 text-sm outline-none focus:border-[#86a995]" /></label>
         <label className="block"><span className="mb-1.5 block text-xs font-semibold text-[#43564b]">Original price ({displayCurrency}, optional)</span><input type="number" min={price || '0'} step="0.01" value={originalPrice} onChange={(event) => setOriginalPrice(event.target.value)} placeholder="0.00" className="h-11 w-full rounded-xl border border-[#dfe7e1] px-3 text-sm outline-none focus:border-[#86a995]" /></label>
       </div>
-      <label className="block"><span className="mb-1.5 block text-xs font-semibold text-[#43564b]">Campus pickup location</span><input maxLength={120} value={locationCampus} onChange={(event) => setLocationCampus(event.target.value)} placeholder="e.g. North Hall" className="h-11 w-full rounded-xl border border-[#dfe7e1] px-3 text-sm outline-none focus:border-[#86a995]" /></label>
+      <div className="block"><span className="mb-1.5 block text-xs font-semibold text-[#43564b]">Pickup location</span><div className="flex flex-col gap-2 sm:flex-row"><input maxLength={120} value={locationCampus} onChange={(event) => setLocationCampus(event.target.value)} placeholder="e.g. North Hall" className="h-11 min-w-0 flex-1 rounded-xl border border-[#dfe7e1] px-3 text-sm outline-none focus:border-[#86a995]" /><Button type="button" variant="secondary" disabled={locationBusy} onClick={() => void addCurrentLocation()} icon={<MapPin size={15} />} className="min-h-11 whitespace-nowrap">{locationBusy ? 'Getting location…' : coordinates ? 'Location added' : 'Use my location'}</Button></div><p className="mt-1.5 text-[11px] leading-4 text-[#87938d]">Adding your approximate location helps nearby shoppers find this product. It is stored with this listing.</p>{locationError && <p role="alert" className="mt-1 text-xs text-[#a34237]">{locationError}</p>}</div>
 
       <div><div className="mb-1.5 flex items-center justify-between"><span className="text-xs font-semibold text-[#43564b]">Product photos</span><span className="text-[11px] text-[#87938d]">{images.length}/{maxImages}</span></div><label className="flex min-h-24 cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-[#b9c9bd] bg-[#f8faf8] px-4 py-4 text-center transition hover:bg-[#f1f6f1]"><ImagePlus size={21} className="text-[#628174]" /><span className="text-xs font-semibold text-[#43564b]">Choose images</span><span className="text-[10px] text-[#87938d]">JPEG, PNG, WebP, AVIF, or GIF · up to 10 MB each</span><input type="file" accept="image/jpeg,image/png,image/webp,image/avif,image/gif" multiple className="sr-only" onChange={(event) => { const available = maxImages - images.length; const selected = Array.from(event.target.files ?? []).slice(0, available).map((file) => ({ file, previewUrl: URL.createObjectURL(file) })); selected.forEach(({ previewUrl }) => previewUrls.current.add(previewUrl)); setImages((current) => [...current, ...selected]); setError(''); event.target.value = '' }} /></label>
-        {images.length > 0 && <div className="mt-3 grid grid-cols-4 gap-2">{images.map(({ file, previewUrl }, index) => <div key={`${file.name}-${index}`} className="group relative aspect-square overflow-hidden rounded-lg bg-[#f1f4f1]"><img src={previewUrl} alt={`Product photo ${index + 1}`} className="size-full object-cover" /><IconButton label={`Remove photo ${index + 1}`} onClick={() => { const removed = images[index]; if (removed) { URL.revokeObjectURL(removed.previewUrl); previewUrls.current.delete(removed.previewUrl) }; setImages((current) => current.filter((_, itemIndex) => itemIndex !== index)) }} className="absolute right-1 top-1 size-7 bg-white/95 opacity-100 shadow-sm"><X size={14} /></IconButton></div>)}</div>}
+        {images.length > 0 && <div className="mt-3 grid grid-cols-4 gap-2">{images.map(({ file, previewUrl }, index) => <div key={`${file.name}-${index}`} className="group relative aspect-square overflow-hidden rounded-lg bg-[#f1f4f1]"><img src={previewUrl} alt={`Product photo ${index + 1}`} className="size-full bg-white object-contain" /><IconButton label={`Remove photo ${index + 1}`} onClick={() => { const removed = images[index]; if (removed) { URL.revokeObjectURL(removed.previewUrl); previewUrls.current.delete(removed.previewUrl) }; setImages((current) => current.filter((_, itemIndex) => itemIndex !== index)) }} className="absolute right-1 top-1 size-7 bg-white/95 opacity-100 shadow-sm"><X size={14} /></IconButton></div>)}</div>}
       </div>
 
       {error && <p role="alert" className="rounded-lg border border-[#f1d8d3] bg-[#fff5f2] px-3 py-2.5 text-xs leading-5 text-[#a34237]">{error}</p>}

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Bot, ChevronDown, Compass, ExternalLink, MessageCircle, Minus, Send, ShieldCheck, Sparkles, Store, ThumbsDown, ThumbsUp, Wifi, WifiOff, X } from 'lucide-react'
 import type { FormEvent } from 'react'
 import type { Auction, AuctionWatchlistRule, MarketplaceListing } from '../../types'
@@ -205,7 +206,7 @@ function answerLocally(text: string, auctions: Auction[], listings: MarketplaceL
   }
 
   if (/\b(hi|hello|hey|good morning|good afternoon)\b/.test(normalized)) {
-    return { text: 'Hi there. I’m Scout, your QuickResell guide. I can help you browse, bid, shop, or find your way around.', intent: 'greeting', actions: [{ label: 'Browse auctions', kind: 'navigate', destination: 'feed' }, { label: 'Open campus shop', kind: 'navigate', destination: 'shop' }] }
+    return { text: 'Hi there. I’m Scout, your QuickResell guide. I can help you browse, bid, shop, or find your way around.', intent: 'greeting', actions: [{ label: 'Browse auctions', kind: 'navigate', destination: 'feed' }, { label: 'Open shop', kind: 'navigate', destination: 'shop' }] }
   }
 
   if (/\b(talk to (a )?(person|human)|human support|customer service|support agent|contact support|talk to support)\b/.test(normalized)) {
@@ -235,7 +236,7 @@ function answerLocally(text: string, auctions: Auction[], listings: MarketplaceL
     }
     const listingToShow = matchingListings[0] ?? (listingBudget !== null ? eligibleListings.slice(0, 3)[0] : undefined)
     if (listingToShow) {
-      return { text: `I found “${listingToShow.title}” in ${listingToShow.category} for ${currency(listingToShow.price)}${listingBudget === null ? '' : `, within your ${currency(listingBudget)} budget`}. Open it in the Shop to confirm stock and seller details.`, intent: 'shop_search', actions: [{ label: 'View this product', kind: 'listing', listingId: listingToShow.id }, { label: 'Open campus shop', kind: 'navigate', destination: 'shop' }] }
+      return { text: `I found “${listingToShow.title}” in ${listingToShow.category} for ${currency(listingToShow.price)}${listingBudget === null ? '' : `, within your ${currency(listingBudget)} budget`}. Open it in the Shop to confirm stock and seller details.`, intent: 'shop_search', actions: [{ label: 'View this product', kind: 'listing', listingId: listingToShow.id }, { label: 'Open shop', kind: 'navigate', destination: 'shop' }] }
     }
     if (listingBudget !== null && eligibleListings.length === 0) {
       return { text: `I couldn’t find a fixed-price item at or below ${currency(listingBudget)} in the current marketplace data. You can raise the budget or browse all Shop items.`, intent: 'shop_search', actions: [{ label: 'Browse the Shop', kind: 'navigate', destination: 'shop' }] }
@@ -243,7 +244,7 @@ function answerLocally(text: string, auctions: Auction[], listings: MarketplaceL
     if (matchedListing) {
       return { text: `I found “${matchedListing.title}” in ${matchedListing.category} for ${currency(matchedListing.price)}.`, intent: 'shop_search', actions: [{ label: 'View this product', kind: 'listing', listingId: matchedListing.id }] }
     }
-    return { text: `The Campus shop has ${listings.length} ${listings.length === 1 ? 'fixed-price item' : 'fixed-price items'} in the latest marketplace data. You can search by product, filter by category, and add available items to your cart.`, intent: 'shop_search', actions: [{ label: 'Open campus shop', kind: 'navigate', destination: 'shop' }] }
+    return { text: `The Shop has ${listings.length} ${listings.length === 1 ? 'fixed-price item' : 'fixed-price items'} in the latest marketplace data. You can search by product, filter by category, and add available items to your cart.`, intent: 'shop_search', actions: [{ label: 'Open shop', kind: 'navigate', destination: 'shop' }] }
   }
 
   if (/\b(cart|checkout|check out|pay|payment|order|purchase)\b/.test(normalized)) {
@@ -321,6 +322,20 @@ function NavigationAssistant({ auctions, listings, dataReady, onNavigate, onOpen
     if (open) endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
   }, [messages, open])
 
+  useEffect(() => {
+    if (!open) return
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false)
+    }
+    window.addEventListener('keydown', closeOnEscape)
+    return () => {
+      document.body.style.overflow = previousOverflow
+      window.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [open])
+
   const sendMessage = (rawText: string) => {
     const text = rawText.trim()
     if (!text) return
@@ -397,7 +412,9 @@ function NavigationAssistant({ auctions, listings, dataReady, onNavigate, onOpen
   const statusText = !online ? 'Offline · local help ready' : isUsingCache ? 'Reconnecting · saved data' : 'Ready to help'
 
   return <>
-    {open && <section aria-label="Scout navigation assistant" className="fixed inset-x-3 bottom-[78px] z-50 flex max-h-[min(640px,calc(100dvh-112px))] flex-col overflow-hidden rounded-[18px] border border-[#dfe7df] bg-[#fcfdfb] shadow-[0_24px_80px_rgba(26,47,35,.24)] sm:inset-x-auto sm:bottom-24 sm:right-5 sm:w-[390px]">
+    {createPortal(open ? <div className="fixed inset-0 z-[90] flex items-end justify-center bg-[#101a17]/55 sm:pointer-events-none sm:inset-auto sm:bottom-24 sm:right-5 sm:block sm:bg-transparent" onMouseDown={(event) => { if (event.target === event.currentTarget) setOpen(false) }}>
+      <section role="dialog" aria-modal="true" aria-label="Scout navigation assistant" className="pointer-events-auto flex max-h-[88dvh] w-full flex-col overflow-hidden rounded-t-[22px] border border-[#dfe7df] bg-[#fcfdfb] shadow-[0_24px_80px_rgba(26,47,35,.24)] sm:max-h-[min(640px,calc(100dvh-112px))] sm:w-[390px] sm:rounded-[18px]">
+      <div aria-hidden="true" className="mx-auto mt-2.5 h-1 w-10 shrink-0 rounded-full bg-[#d8dfd9] sm:hidden" />
       <header className="flex items-center gap-3 bg-[#263d31] px-4 py-3.5 text-white"><span className="grid size-9 shrink-0 place-items-center rounded-[11px] bg-[#d4f06b] text-[#233a30]"><Bot size={19} /></span><div className="min-w-0 flex-1"><div className="flex items-center gap-2"><h2 className="font-display text-sm font-semibold">Scout</h2><span className="rounded-full bg-white/10 px-2 py-0.5 text-[9px] font-bold uppercase tracking-[.1em] text-[#d8e5da]">Campus guide</span></div><p className="mt-0.5 flex items-center gap-1.5 text-[10px] text-[#c1d0c4]"><span className={`size-1.5 rounded-full ${online ? 'bg-[#b9e475]' : 'bg-[#f3be68]'}`} />{statusText}</p></div><button type="button" aria-label="Minimize Scout" onClick={() => setOpen(false)} className="grid size-9 place-items-center rounded-lg text-white/75 hover:bg-white/10 hover:text-white"><Minus size={17} /></button><button type="button" aria-label="Close Scout" onClick={() => setOpen(false)} className="grid size-9 place-items-center rounded-lg text-white/75 hover:bg-white/10 hover:text-white"><X size={17} /></button></header>
 
       <div className="flex items-center gap-2 border-b border-[#edf1ec] bg-[#f6f8f4] px-4 py-2 text-[10px] text-[#77867b]"><Sparkles size={12} className="text-[#82934f]" />Answers run on this device. {isUsingCache ? `Using saved marketplace data from ${new Date(cachedData.savedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}.` : dataReady ? 'Marketplace context is up to date.' : 'Navigation and bidding help work without a connection.'}</div>
@@ -433,8 +450,9 @@ function NavigationAssistant({ auctions, listings, dataReady, onNavigate, onOpen
         </div>
       </form>}
 
-      <div className="border-t border-[#e9eee8] bg-white p-3"><form onSubmit={(event) => { event.preventDefault(); sendMessage(draft) }} className="flex items-center gap-2 rounded-xl border border-[#dfe7dd] bg-[#fafbf9] p-1.5 pl-3 focus-within:border-[#93ad8e]"><input value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="Ask about bidding, shopping…" aria-label="Message Scout" className="min-w-0 flex-1 bg-transparent py-2 text-xs text-[#314336] outline-none placeholder:text-[#9aa59b]" /><button type="submit" disabled={!draft.trim()} aria-label="Send message" className="grid size-9 shrink-0 place-items-center rounded-lg bg-[#2d5140] text-white transition hover:bg-[#3d684d] disabled:cursor-not-allowed disabled:bg-[#b8c2b8]"><Send size={15} /></button></form><div className="mt-2 flex items-center justify-between px-1 text-[9px] text-[#9aa49c]"><span className="inline-flex items-center gap-1">{online ? <Wifi size={10} /> : <WifiOff size={10} />}{online ? 'Local assistant · marketplace context' : 'Offline ready'}</span><span>Scout can make mistakes</span></div></div>
-    </section>}
+      <div className="border-t border-[#e9eee8] bg-white p-3 pb-[max(12px,env(safe-area-inset-bottom))] sm:pb-3"><form onSubmit={(event) => { event.preventDefault(); sendMessage(draft) }} className="flex items-center gap-2 rounded-xl border border-[#dfe7dd] bg-[#fafbf9] p-1.5 pl-3 focus-within:border-[#93ad8e]"><input value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="Ask about bidding, shopping…" aria-label="Message Scout" className="min-w-0 flex-1 bg-transparent py-2 text-xs text-[#314336] outline-none placeholder:text-[#9aa59b]" /><button type="submit" disabled={!draft.trim()} aria-label="Send message" className="grid size-9 shrink-0 place-items-center rounded-lg bg-[#2d5140] text-white transition hover:bg-[#3d684d] disabled:cursor-not-allowed disabled:bg-[#b8c2b8]"><Send size={15} /></button></form><div className="mt-2 flex items-center justify-between px-1 text-[9px] text-[#9aa49c]"><span className="inline-flex items-center gap-1">{online ? <Wifi size={10} /> : <WifiOff size={10} />}{online ? 'Local assistant · marketplace context' : 'Offline ready'}</span><span>Scout can make mistakes</span></div></div>
+      </section>
+    </div> : null, document.body)}
 
     <button type="button" aria-label={open ? 'Close Scout assistant' : 'Open Scout assistant'} aria-expanded={open} onClick={() => setOpen((current) => !current)} className={`fixed bottom-[82px] right-4 z-40 inline-flex h-12 w-12 transform items-center justify-center rounded-full border border-[#eadfb9] bg-[#f4eddb] text-[#2d3d34] shadow-[0_12px_28px_rgba(42,37,24,.14)] backdrop-blur-sm transition-transform duration-150 hover:bg-[#efe6cc] active:translate-y-[1px] sm:bottom-6 sm:right-6 sm:h-12 sm:w-auto sm:px-4 sm:gap-2 ${open ? 'hidden sm:inline-flex' : ''}`}><MessageCircle size={18} /><span className="hidden sm:inline">Ask Scout</span><ChevronDown size={15} className="hidden sm:inline" /></button>
   </>

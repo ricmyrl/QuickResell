@@ -2,12 +2,14 @@ import { useMemo, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import type { ReactNode } from 'react'
 import type { Session } from '@supabase/supabase-js'
-import { Activity, ArrowDownRight, ArrowRight, BadgeCheck, Boxes, Check, ChevronRight, CircleDollarSign, Clock3, ImagePlus, LayoutGrid, ListFilter, Package, Search, ShieldCheck, ShieldHalf, ShieldAlert, Sparkles, Store } from 'lucide-react'
+import { Activity, ArrowDownRight, ArrowRight, BadgeCheck, Boxes, Check, ChevronRight, CircleDollarSign, Clock3, ImagePlus, LayoutGrid, ListFilter, MapPin, Package, Search, ShieldCheck, ShieldHalf, ShieldAlert, Sparkles, Store } from 'lucide-react'
 import type { Auction, MarketplaceListing, Verdict } from '../../types'
 import { Button } from '../common/Button'
 import { CreateListingPage } from './CreateListingModal'
 import { SellerVerdictModal } from './SellerVerdictModal'
 import { useCurrency } from '../../lib/CurrencyContext'
+import { getCurrentLocation } from '../../lib/geolocation'
+import { updateListingLocation } from '../../services/listingApi'
 
 type StudioSection = 'overview' | 'inventory' | 'auctions'
 type StudioProps = {
@@ -20,6 +22,7 @@ type StudioProps = {
   ownListings: MarketplaceListing[]
   onRequestSignIn: () => void
   onListingCreated: (listing: MarketplaceListing) => void
+  onListingUpdated: (listing: MarketplaceListing) => void
   onVerdict: (auction: Auction, decision: Verdict) => Promise<void>
   onNotice: (message: string, kind?: 'success' | 'error') => void
 }
@@ -30,7 +33,7 @@ const sections: Array<{ id: StudioSection; label: string; icon: typeof LayoutGri
   { id: 'auctions', label: 'Auctions', icon: Activity },
 ]
 
-function SellerStudio({ auctions, userId, trustScore, completedAuctions, session, emailConfirmed, ownListings, onRequestSignIn, onListingCreated, onVerdict, onNotice }: StudioProps) {
+function SellerStudio({ auctions, userId, trustScore, completedAuctions, session, emailConfirmed, ownListings, onRequestSignIn, onListingCreated, onListingUpdated, onVerdict, onNotice }: StudioProps) {
   const { formatUsd } = useCurrency()
   const currency = { format: formatUsd }
   const location = useLocation()
@@ -38,6 +41,7 @@ function SellerStudio({ auctions, userId, trustScore, completedAuctions, session
   const [section, setSection] = useState<StudioSection>('overview')
   const [query, setQuery] = useState('')
   const [selectedAuction, setSelectedAuction] = useState<Auction | null>(null)
+  const [locationSavingId, setLocationSavingId] = useState<string | null>(null)
 
   const pending = auctions.filter((auction) => auction.status === 'PENDING_APPROVAL' && (!userId || auction.sellerId === userId))
   const active = auctions.filter((auction) => auction.status === 'ACTIVE' && (!userId || auction.sellerId === userId))
@@ -70,6 +74,21 @@ function SellerStudio({ auctions, userId, trustScore, completedAuctions, session
     await onVerdict(selectedAuction, decision)
     onNotice(decision === 'ACCEPT' ? 'Sale confirmed. Your seller trust improved.' : 'Bid rejected. The listing is frozen and your trust score changed.')
     setSelectedAuction(null)
+  }
+
+  const saveListingLocation = async (listing: MarketplaceListing) => {
+    if (!session) return
+    setLocationSavingId(listing.id)
+    try {
+      const coordinates = await getCurrentLocation()
+      const updatedListing = await updateListingLocation(listing.id, coordinates, session)
+      onListingUpdated(updatedListing)
+      onNotice(`Nearby location saved for ${listing.title}.`)
+    } catch (caught) {
+      onNotice(caught instanceof Error ? caught.message : 'Could not save this product location.', 'error')
+    } finally {
+      setLocationSavingId(null)
+    }
   }
 
   if (location.pathname === '/seller/products/new') {
@@ -132,7 +151,7 @@ function SellerStudio({ auctions, userId, trustScore, completedAuctions, session
     {section === 'inventory' && <section className="overflow-hidden rounded-[14px] border border-[#e2e9e3] bg-white">
       <div className="flex flex-wrap items-end justify-between gap-4 border-b border-[#edf1ed] px-4 py-4 sm:px-5"><div><div className="flex items-center gap-2"><h2 className="font-display text-lg font-semibold text-[#263c31]">Inventory</h2><span className="rounded-full bg-[#edf3eb] px-2 py-0.5 text-[10px] font-bold text-[#5c765d]">{ownListings.length}</span></div><p className="mt-1 text-xs text-[#849087]">Products listed by your seller account.</p></div><Button onClick={startListing} icon={<ImagePlus size={15} />}>Add a product</Button></div>
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#edf1ed] bg-[#fbfcfa] px-4 py-3 sm:px-5"><label className="relative min-w-0 flex-1 sm:max-w-sm"><Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#9aa59d]" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search your products" aria-label="Search your products" className="h-10 w-full rounded-lg border border-[#e2e8e2] bg-white pl-9 pr-3 text-sm outline-none placeholder:text-[#a2aca5] focus:border-[#91aa92]" /></label><span className="inline-flex items-center gap-1.5 text-xs text-[#849087]"><ListFilter size={14} />{filteredListings.length} shown</span></div>
-      {filteredListings.length ? <div className="divide-y divide-[#eef2ee]">{filteredListings.map((listing) => <ListingRow key={listing.id} listing={listing} detailed />)}</div> : <EmptyState icon={<Package size={18} />} title={query ? 'No matching products' : 'No products yet'} description={query ? 'Try another title, category, or campus location.' : 'Add a product and it will appear here for buyers.'} action={query ? undefined : 'Add a product'} onAction={query ? undefined : startListing} />}
+      {filteredListings.length ? <div className="divide-y divide-[#eef2ee]">{filteredListings.map((listing) => <ListingRow key={listing.id} listing={listing} detailed locationBusy={locationSavingId === listing.id} onSetLocation={(item) => void saveListingLocation(item)} />)}</div> : <EmptyState icon={<Package size={18} />} title={query ? 'No matching products' : 'No products yet'} description={query ? 'Try another title, category, or campus location.' : 'Add a product and it will appear here for buyers.'} action={query ? undefined : 'Add a product'} onAction={query ? undefined : startListing} />}
     </section>}
 
     {section === 'auctions' && <div className="space-y-5">
@@ -157,10 +176,10 @@ function Metric({ icon, label, value, note, tone }: { icon: ReactNode; label: st
   return <div className="min-w-0 rounded-[12px] border border-[#e3eae3] bg-white p-3.5 sm:p-4"><div className="flex items-center gap-2"><span className={`grid size-8 shrink-0 place-items-center rounded-lg ${styles[tone]}`}>{icon}</span><span className="truncate text-xs font-medium text-[#7d8981]">{label}</span></div><p className="font-display mt-3 text-[26px] font-semibold leading-none text-[#2a3e31]">{value}</p><p className="mt-2 truncate text-[10px] text-[#929c95] sm:text-[11px]">{note}</p></div>
 }
 
-function ListingRow({ listing, detailed = false }: { listing: MarketplaceListing; detailed?: boolean }) {
+function ListingRow({ listing, detailed = false, locationBusy = false, onSetLocation }: { listing: MarketplaceListing; detailed?: boolean; locationBusy?: boolean; onSetLocation?: (listing: MarketplaceListing) => void }) {
   const { formatUsd } = useCurrency()
   const low = listing.quantityAvailable > 0 && listing.quantityAvailable <= 2
-  return <article className="flex min-w-0 items-center gap-3 px-4 py-3.5 sm:px-5"><div className="grid size-[52px] shrink-0 place-items-center overflow-hidden rounded-[10px] bg-[#f1f4ef]">{listing.image ? <img src={listing.image} alt={listing.title} className="size-full object-cover" /> : <Package size={19} className="text-[#94a095]" />}</div><div className="min-w-0 flex-1"><div className="flex min-w-0 items-center gap-2"><h3 className="truncate text-sm font-semibold text-[#35473c]">{listing.title}</h3>{low && <span className="hidden shrink-0 rounded-full bg-[#fff3df] px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-[#9a7137] sm:inline">Low stock</span>}</div><p className="mt-1 truncate text-xs text-[#87938b]">{listing.category}{detailed ? ` · ${listing.location}` : ''}</p>{detailed && <div className="mt-2 flex items-center gap-2"><span className={`inline-flex items-center gap-1 text-[10px] font-semibold ${listing.quantityAvailable > 0 ? 'text-[#57805c]' : 'text-[#a45145]'}`}><span className={`size-1.5 rounded-full ${listing.quantityAvailable > 0 ? 'bg-[#6e9d70]' : 'bg-[#bd5d4d]'}`} />{listing.quantityAvailable > 0 ? 'Available' : 'Out of stock'}</span><span className="text-[10px] text-[#9aa39c]">{listing.quantityAvailable} {listing.quantityAvailable === 1 ? 'unit' : 'units'}</span></div>}</div><div className="shrink-0 text-right"><p className="font-display text-sm font-semibold text-[#304738]">{formatUsd(listing.price)}</p><p className="mt-1 text-[10px] text-[#98a19b]">{listing.quantityAvailable} {detailed ? 'in stock' : 'available'}</p></div></article>
+  return <article className="flex min-w-0 items-center gap-3 px-4 py-3.5 sm:px-5"><div className="grid size-[52px] shrink-0 place-items-center overflow-hidden rounded-[10px] bg-[#f1f4ef]">{listing.image ? <img src={listing.image} alt={listing.title} className="size-full object-cover" /> : <Package size={19} className="text-[#94a095]" />}</div><div className="min-w-0 flex-1"><div className="flex min-w-0 items-center gap-2"><h3 className="truncate text-sm font-semibold text-[#35473c]">{listing.title}</h3>{low && <span className="hidden shrink-0 rounded-full bg-[#fff3df] px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-[#9a7137] sm:inline">Low stock</span>}</div><p className="mt-1 truncate text-xs text-[#87938b]">{listing.category}{detailed ? ` · ${listing.location}` : ''}</p>{detailed && <div className="mt-2 flex flex-wrap items-center gap-2"><span className={`inline-flex items-center gap-1 text-[10px] font-semibold ${listing.quantityAvailable > 0 ? 'text-[#57805c]' : 'text-[#a45145]'}`}><span className={`size-1.5 rounded-full ${listing.quantityAvailable > 0 ? 'bg-[#6e9d70]' : 'bg-[#bd5d4d]'}`} />{listing.quantityAvailable > 0 ? 'Available' : 'Out of stock'}</span><span className="text-[10px] text-[#9aa39c]">{listing.quantityAvailable} {listing.quantityAvailable === 1 ? 'unit' : 'units'}</span>{onSetLocation && <button type="button" disabled={locationBusy} onClick={() => onSetLocation(listing)} className="inline-flex min-h-7 items-center gap-1 rounded-lg border border-[#e1e8e2] px-2 text-[10px] font-semibold text-[#557261] transition hover:bg-[#f5f8f4] disabled:opacity-50"><MapPin size={11} />{locationBusy ? 'Saving…' : listing.latitude == null ? 'Set nearby location' : 'Refresh location'}</button>}</div>}</div><div className="shrink-0 text-right"><p className="font-display text-sm font-semibold text-[#304738]">{formatUsd(listing.price)}</p><p className="mt-1 text-[10px] text-[#98a19b]">{listing.quantityAvailable} {detailed ? 'in stock' : 'available'}</p></div></article>
 }
 
 function AuctionRow({ auction, decision = false, detailed = false, onReview }: { auction: Auction; decision?: boolean; detailed?: boolean; onReview?: () => void }) {
