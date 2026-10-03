@@ -1,6 +1,6 @@
 import type { Session } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabase'
-import type { ListingReactionCounts, ListingReactionType, MarketplaceListing, PurchaseOrder, ShoppingCartItem } from '../types'
+import type { FulfillmentMethod, ListingReactionCounts, ListingReactionType, MarketplaceListing, PurchaseOrder, SellerOrderItem, ShoppingCartItem } from '../types'
 
 const pageHostApiUrl = typeof window !== 'undefined' && window.location.protocol === 'http:'
   ? `http://${window.location.hostname}:3000/api`
@@ -123,4 +123,26 @@ export async function placeCartOrder(paymentReference?: string, session?: Sessio
     body: JSON.stringify(paymentReference ? { paymentReference } : {}),
   }, session)
   return result.order
+}
+
+export async function getMyOrders(session: Session): Promise<PurchaseOrder[]> {
+  const result = await request<{ orders: PurchaseOrder[] }>('/orders/mine', {}, session)
+  return result.orders
+}
+
+export async function getSellerOrders(session: Session): Promise<SellerOrderItem[]> {
+  const result = await request<{ items: SellerOrderItem[] }>('/seller/orders', {}, session)
+  return result.items
+}
+
+export async function updateOrderFulfillment(itemId: string, method: FulfillmentMethod, session: Session): Promise<SellerOrderItem> {
+  const result = await request<{ item: SellerOrderItem }>(`/seller/orders/${encodeURIComponent(itemId)}/fulfillment`, {
+    method: 'POST',
+    body: JSON.stringify({ method }),
+  }, session)
+  return result.item
+}
+
+export async function confirmOrderItemReceived(itemId: string, session: Session): Promise<void> {
+  await request<{ item: { id: string } }>(`/orders/items/${encodeURIComponent(itemId)}/complete`, { method: 'POST' }, session)
 }

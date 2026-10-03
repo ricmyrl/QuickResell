@@ -89,7 +89,30 @@ export type PurchaseOrder = {
   status: 'PENDING_HANDOFF' | 'COMPLETED' | 'CANCELLED'
   subtotalCents: number
   createdAt: string
-  items: Array<{ id: string; postId: string; sellerId: string; title: string; quantity: number; unitPriceCents: number }>
+  paymentStatus?: 'PAID' | 'UNPAID'
+  items: PurchaseOrderItem[]
+}
+
+export type FulfillmentMethod = 'PICKUP' | 'SHIPPING'
+export type OrderItemFulfillmentStatus = 'PENDING_HANDOFF' | 'READY_FOR_PICKUP' | 'SHIPPED' | 'COMPLETED'
+export type PurchaseOrderItem = {
+  id: string
+  postId: string
+  sellerId: string
+  title: string
+  quantity: number
+  unitPriceCents: number
+  fulfillmentStatus: OrderItemFulfillmentStatus
+  fulfillmentMethod: FulfillmentMethod | null
+  seller?: { displayName: string | null }
+}
+export type SellerOrderItem = PurchaseOrderItem & {
+  paymentStatus: 'PAID' | 'UNPAID'
+  order: {
+    id: string
+    createdAt: string
+    buyer: { displayName: string | null }
+  }
 }
 
 export type NotificationItem = {

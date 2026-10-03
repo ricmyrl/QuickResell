@@ -1,17 +1,18 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import type { ReactNode } from 'react'
 import type { Session } from '@supabase/supabase-js'
-import { Activity, ArrowDownRight, ArrowRight, BadgeCheck, Boxes, Check, ChevronRight, CircleDollarSign, Clock3, ImagePlus, LayoutGrid, ListFilter, MapPin, Package, Search, ShieldCheck, ShieldHalf, ShieldAlert, Sparkles, Store } from 'lucide-react'
-import type { Auction, MarketplaceListing, Verdict } from '../../types'
+import { Activity, ArrowDownRight, ArrowRight, BadgeCheck, Boxes, Check, ChevronRight, CircleDollarSign, Clock3, ImagePlus, LayoutGrid, ListFilter, MapPin, Package, PackageCheck, Search, ShieldCheck, ShieldHalf, ShieldAlert, Sparkles, Store, Truck } from 'lucide-react'
+import type { Auction, FulfillmentMethod, MarketplaceListing, SellerOrderItem, Verdict } from '../../types'
 import { Button } from '../common/Button'
 import { CreateListingPage } from './CreateListingModal'
 import { SellerVerdictModal } from './SellerVerdictModal'
 import { useCurrency } from '../../lib/CurrencyContext'
 import { getCurrentLocation } from '../../lib/geolocation'
 import { updateListingLocation } from '../../services/listingApi'
+import { getSellerOrders, updateOrderFulfillment } from '../../services/cartApi'
 
-type StudioSection = 'overview' | 'inventory' | 'auctions'
+type StudioSection = 'overview' | 'inventory' | 'auctions' | 'orders'
 type StudioProps = {
   auctions: Auction[]
   userId?: string
@@ -31,6 +32,7 @@ const sections: Array<{ id: StudioSection; label: string; icon: typeof LayoutGri
   { id: 'overview', label: 'Overview', icon: LayoutGrid },
   { id: 'inventory', label: 'Inventory', icon: Boxes },
   { id: 'auctions', label: 'Auctions', icon: Activity },
+  { id: 'orders', label: 'Sales', icon: PackageCheck },
 ]
 
 function SellerStudio({ auctions, userId, trustScore, completedAuctions, session, emailConfirmed, ownListings, onRequestSignIn, onListingCreated, onListingUpdated, onVerdict, onNotice }: StudioProps) {
@@ -42,6 +44,23 @@ function SellerStudio({ auctions, userId, trustScore, completedAuctions, session
   const [query, setQuery] = useState('')
   const [selectedAuction, setSelectedAuction] = useState<Auction | null>(null)
   const [locationSavingId, setLocationSavingId] = useState<string | null>(null)
+  const [orderItems, setOrderItems] = useState<SellerOrderItem[]>([])
+  const [ordersLoading, setOrdersLoading] = useState(Boolean(session))
+  const [ordersError, setOrdersError] = useState('')
+  const [fulfillmentBusyId, setFulfillmentBusyId] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!session) return
+    let cancelled = false
+    void getSellerOrders(session).then((items) => {
+      if (!cancelled) setOrderItems(items)
+    }).catch((caught: unknown) => {
+      if (!cancelled) setOrdersError(caught instanceof Error ? caught.message : 'Sales could not be loaded.')
+    }).finally(() => {
+      if (!cancelled) setOrdersLoading(false)
+    })
+    return () => { cancelled = true }
+  }, [session])
 
   const pending = auctions.filter((auction) => auction.status === 'PENDING_APPROVAL' && (!userId || auction.sellerId === userId))
   const active = auctions.filter((auction) => auction.status === 'ACTIVE' && (!userId || auction.sellerId === userId))
@@ -91,6 +110,23 @@ function SellerStudio({ auctions, userId, trustScore, completedAuctions, session
     }
   }
 
+  const setFulfillment = async (item: SellerOrderItem, method: FulfillmentMethod) => {
+    if (!session) return
+    setFulfillmentBusyId(item.id)
+    setOrdersError('')
+    try {
+      const updated = await updateOrderFulfillment(item.id, method, session)
+      setOrderItems((current) => current.map((orderItem) => orderItem.id === item.id ? updated : orderItem))
+      onNotice(method === 'PICKUP' ? `${item.title} is ready for pickup.` : `${item.title} marked as shipped.`)
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : 'The sale could not be updated.'
+      setOrdersError(message)
+      onNotice(message, 'error')
+    } finally {
+      setFulfillmentBusyId(null)
+    }
+  }
+
   if (location.pathname === '/seller/products/new') {
     return <CreateListingPage onClose={() => navigate('/seller')} session={session} onCreated={onListingCreated} />
   }
@@ -118,7 +154,7 @@ function SellerStudio({ auctions, userId, trustScore, completedAuctions, session
 
     <div className="mb-5 flex items-center justify-between gap-3 border-b border-[#e0e7e1]">
       <div className="flex min-w-0 gap-1 overflow-x-auto scrollbar-hidden" role="tablist" aria-label="Seller studio sections">
-        {sections.map(({ id, label, icon: Icon }) => <button key={id} type="button" role="tab" aria-selected={section === id} onClick={() => setSection(id)} className={`inline-flex shrink-0 items-center gap-2 border-b-2 px-3 py-3 text-sm font-semibold transition-colors ${section === id ? 'border-[#315f49] text-[#315f49]' : 'border-transparent text-[#839087] hover:text-[#425c4d]'}`}><Icon size={15} />{label}{id === 'auctions' && pending.length > 0 && <span className="grid size-[18px] place-items-center rounded-full bg-[#d9523e] text-[10px] font-bold text-white">{pending.length}</span>}</button>)}
+        {sections.map(({ id, label, icon: Icon }) => <button key={id} type="button" role="tab" aria-selected={section === id} onClick={() => setSection(id)} className={`inline-flex shrink-0 items-center gap-2 border-b-2 px-3 py-3 text-sm font-semibold transition-colors ${section === id ? 'border-[#315f49] text-[#315f49]' : 'border-transparent text-[#839087] hover:text-[#425c4d]'}`}><Icon size={15} />{label}{id === 'auctions' && pending.length > 0 && <span className="grid size-[18px] place-items-center rounded-full bg-[#d9523e] text-[10px] font-bold text-white">{pending.length}</span>}{id === 'orders' && orderItems.some((item) => item.fulfillmentStatus === 'PENDING_HANDOFF') && <span className="grid size-[18px] place-items-center rounded-full bg-[#d9523e] text-[10px] font-bold text-white">{orderItems.filter((item) => item.fulfillmentStatus === 'PENDING_HANDOFF').length}</span>}</button>)}
       </div>
       {section === 'inventory' && <span className="hidden shrink-0 text-xs text-[#8b9690] sm:block">{ownListings.length} total</span>}
     </div>
@@ -159,6 +195,18 @@ function SellerStudio({ auctions, userId, trustScore, completedAuctions, session
       <section className="overflow-hidden rounded-[14px] border border-[#e2e9e3] bg-white"><div className="flex items-center justify-between border-b border-[#edf1ed] px-4 py-4 sm:px-5"><div><h2 className="font-display text-base font-semibold text-[#263c31]">Active auctions</h2><p className="mt-1 text-xs text-[#849087]">Live bids and closing times.</p></div><span className="rounded-full bg-[#edf5eb] px-2 py-1 text-xs font-bold text-[#527354]">{active.length}</span></div>{active.length ? <div className="divide-y divide-[#eef2ee]">{active.map((auction) => <AuctionRow key={auction.id} auction={auction} detailed />)}</div> : <EmptyState icon={<Activity size={18} />} title="No auctions in progress" description="Create a product listing first, then launch an auction when it is ready." action="Add a product" onAction={startListing} />}</section>
       <section className="overflow-hidden rounded-[14px] border border-[#e2e9e3] bg-white"><div className="flex items-center justify-between border-b border-[#edf1ed] px-4 py-4 sm:px-5"><div><h2 className="font-display text-base font-semibold text-[#263c31]">Past rooms</h2><p className="mt-1 text-xs text-[#849087]">Recently closed, sold, or rejected.</p></div><span className="text-xs font-semibold text-[#87948b]">{closed.length}</span></div>{closed.length ? <div className="divide-y divide-[#eef2ee]">{closed.slice(0, 8).map((auction) => <AuctionRow key={auction.id} auction={auction} detailed />)}</div> : <p className="px-4 py-5 text-sm text-[#89948d] sm:px-5">Finished auctions will appear here.</p>}</section>
     </div>}
+
+    {section === 'orders' && <section className="overflow-hidden rounded-[14px] border border-[#e2e9e3] bg-white">
+      <div className="border-b border-[#edf1ed] px-4 py-4 sm:px-5"><h2 className="font-display text-base font-semibold text-[#263c31]">Paid sales</h2><p className="mt-1 text-xs text-[#849087]">Choose pickup or shipping for each paid item. Buyers can track the update and confirm receipt.</p></div>
+      {ordersError && <p role="alert" className="border-b border-[#f0d7d2] bg-[#fff5f2] px-4 py-3 text-sm text-[#a34237]">{ordersError}</p>}
+      {ordersLoading ? <p className="px-4 py-8 text-center text-sm text-[#849087]">Loading sales…</p> : orderItems.length === 0 ? <p className="px-4 py-8 text-center text-sm text-[#849087]">Paid orders will appear here after a buyer checks out.</p> : <div className="divide-y divide-[#eef2ee]">{orderItems.map((item) => <article key={item.id} className="flex flex-wrap items-center gap-3 px-4 py-4 sm:px-5">
+        <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-[#edf4ed] text-[#587b62]">{item.fulfillmentStatus === 'SHIPPED' ? <Truck size={18} /> : <PackageCheck size={18} />}</span>
+        <div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold text-[#34483b]">{item.quantity} × {item.title}</p><p className="mt-1 text-xs text-[#829087]">Buyer: {item.order.buyer.displayName || 'QuickResell buyer'} · {item.paymentStatus === 'PAID' ? 'Paid' : 'Payment not confirmed'} · {item.fulfillmentStatus === 'PENDING_HANDOFF' ? 'Awaiting fulfillment' : item.fulfillmentStatus === 'READY_FOR_PICKUP' ? 'Ready for pickup' : item.fulfillmentStatus === 'SHIPPED' ? 'Shipped' : 'Received'}</p><p className="mt-0.5 text-[11px] text-[#929d96]">Order {item.order.id} · {new Date(item.order.createdAt).toLocaleDateString()}</p></div>
+        <span className="text-sm font-semibold text-[#405549]">{currency.format(item.unitPriceCents * item.quantity / 100)}</span>
+        {item.paymentStatus === 'PAID' && item.fulfillmentStatus === 'PENDING_HANDOFF' && <div className="flex w-full gap-2 sm:w-auto"><Button disabled={!emailConfirmed || fulfillmentBusyId === item.id} onClick={() => void setFulfillment(item, 'PICKUP')} icon={<MapPin size={14} />} className="min-h-9 px-3 text-xs">Pickup ready</Button><Button disabled={!emailConfirmed || fulfillmentBusyId === item.id} onClick={() => void setFulfillment(item, 'SHIPPING')} icon={<Truck size={14} />} className="min-h-9 px-3 text-xs">Mark shipped</Button></div>}
+      </article>)}</div>}
+      {!emailConfirmed && session && <p className="border-t border-[#edf1ed] px-4 py-3 text-xs text-[#89958e]">Confirm your email before updating order fulfillment.</p>}
+    </section>}
 
     <div className="mt-5 flex items-start gap-2 border-t border-[#e4eae4] pt-4 text-[11px] leading-5 text-[#869188]"><ShieldAlert size={14} className="mt-0.5 shrink-0" />Rejecting a winning bid affects your trust score and freezes the listing. Only reject when you cannot complete the sale.</div>
     <SellerVerdictModal auction={selectedAuction} open={Boolean(selectedAuction)} onClose={() => setSelectedAuction(null)} onSubmit={reviewVerdict} />
