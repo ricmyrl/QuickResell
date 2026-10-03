@@ -1,20 +1,14 @@
-import { useEffect, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { ArrowRight, Clock3, ShoppingCart, Trash2, X } from 'lucide-react'
 import type { Auction } from '../../types'
 import { IconButton } from '../common/Button'
 import { LiveBadge } from '../common/Badge'
 import { useCurrency } from '../../lib/CurrencyContext'
+import { useCountdown } from '../../hooks/useCountdown'
 
 function RemainingTime({ endsAt }: { endsAt: string }) {
-  const [now, setNow] = useState(() => Date.now())
-
-  useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 1000)
-    return () => window.clearInterval(timer)
-  }, [])
-
-  const seconds = Math.max(0, Math.floor((new Date(endsAt).getTime() - now) / 1000))
+  const countdown = useCountdown(endsAt)
+  const seconds = Math.floor(countdown.remaining / 1000)
   const text = seconds <= 0 ? 'Ended' : seconds >= 86_400 ? `${Math.floor(seconds / 86_400)}d left` : `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m left`
   return <span className="inline-flex items-center gap-1 text-[11px] text-[#7f8c85]"><Clock3 size={12} />{text}</span>
 }

@@ -1,18 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { Bell, BellDot, Bookmark, Compass, GraduationCap, ImagePlus, LayoutDashboard, Search, ShieldCheck, ShoppingBag, ShoppingCart, Sparkles, Store, X } from 'lucide-react'
 import type { Session } from '@supabase/supabase-js'
-import { AuctionRoom } from './components/auction/AuctionRoom'
-import { BidAdvert } from './components/auction/BidAdvert'
-import { GlobalFeed } from './components/feed/GlobalFeed'
-import { SellerStudio as SellerDashboard } from './components/dashboard/SellerStudio'
 import { Button, IconButton } from './components/common/Button'
-import { NavigationAssistant } from './components/common/NavigationAssistant'
-import { AuctionWatchlistPage } from './components/watchlist/AuctionWatchlistPage'
-import { AuthPage } from './components/auth/AuthPage'
-import { ShoppingCartPage } from './components/cart/ShoppingCartPage'
-import { StorePage } from './components/store/StorePage'
 import { TrustScoreBadge } from './components/common/TrustScoreBadge'
 import { supabase } from './lib/supabase'
 import { useCurrency } from './lib/CurrencyContext'
@@ -26,6 +17,16 @@ import type { Auction, AuctionWatchlistRule, MarketplaceListing, NotificationIte
 type View = 'feed' | 'shop' | 'cart' | 'dashboard' | 'watchlist'
 type AuthMode = 'signin' | 'register'
 type ToastMessage = { message: string; kind: 'success' | 'error' }
+
+const AuctionRoom = lazy(() => import('./components/auction/AuctionRoom').then((module) => ({ default: module.AuctionRoom })))
+const BidAdvert = lazy(() => import('./components/auction/BidAdvert').then((module) => ({ default: module.BidAdvert })))
+const GlobalFeed = lazy(() => import('./components/feed/GlobalFeed').then((module) => ({ default: module.GlobalFeed })))
+const SellerDashboard = lazy(() => import('./components/dashboard/SellerStudio').then((module) => ({ default: module.SellerStudio })))
+const NavigationAssistant = lazy(() => import('./components/common/NavigationAssistant').then((module) => ({ default: module.NavigationAssistant })))
+const AuctionWatchlistPage = lazy(() => import('./components/watchlist/AuctionWatchlistPage').then((module) => ({ default: module.AuctionWatchlistPage })))
+const AuthPage = lazy(() => import('./components/auth/AuthPage').then((module) => ({ default: module.AuthPage })))
+const ShoppingCartPage = lazy(() => import('./components/cart/ShoppingCartPage').then((module) => ({ default: module.ShoppingCartPage })))
+const StorePage = lazy(() => import('./components/store/StorePage').then((module) => ({ default: module.StorePage })))
 
 const viewPaths: Record<View, string> = {
   feed: '/',
@@ -707,7 +708,8 @@ export default function MarketplaceApp() {
     <button type="button" onClick={() => { setView('dashboard'); setSelectedId(null) }} className={`mt-1 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition-colors ${view === 'dashboard' ? 'bg-[#edf4ed] text-[#2d5d4c]' : 'text-[#78867e] hover:bg-[#f1f4f1] hover:text-[#263b33]'}`}><LayoutDashboard size={17} />Seller studio{sellerRows.some((item) => item.status === 'PENDING_APPROVAL') && <span className="ml-auto size-2 rounded-full bg-[#df704a]" />}</button>
   </>
 
-  return authMode ? <AuthPage initialMode={authMode} returnTo={returnPath(location.state)} onBack={() => setAuthMode(null)} onAuthenticated={() => { setAuthMode(null); showToast('You’re signed in. Welcome to Quick Resell.') }} /> : <div className="min-h-screen bg-[#f5f7f5] text-[#192724]">
+  return <Suspense fallback={<div className="grid min-h-screen place-items-center bg-[#f5f7f5] text-sm text-[#849189]">Loading QuickResell…</div>}>
+    {authMode ? <AuthPage initialMode={authMode} returnTo={returnPath(location.state)} onBack={() => setAuthMode(null)} onAuthenticated={() => { setAuthMode(null); showToast('You’re signed in. Welcome to Quick Resell.') }} /> : <div className="min-h-screen bg-[#f5f7f5] text-[#192724]">
     <header className="sticky top-0 z-30 flex h-[68px] items-center gap-3 border-b border-[#e6ebe7] bg-white/95 px-3 backdrop-blur-md sm:gap-4 sm:px-6 lg:px-8">
       <button type="button" onClick={() => { setView('feed'); setSelectedId(null) }} className="flex shrink-0 items-center gap-2.5"><span className="grid size-9 place-items-center rounded-xl bg-[#d4f06b] text-[#243a33]"><ShoppingBag size={19} strokeWidth={2.5} /></span><span className="font-display text-[17px] font-bold tracking-[-.03em]">quick<span className="text-[#70917c]">resell</span></span></button>
       <div className={`relative mx-auto w-full max-w-[540px] ${searchOpen ? 'block' : 'hidden'} md:block`}><Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#96a19b]" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search marketplace" className="h-10 w-full rounded-xl border border-[#e7ece8] bg-[#f7f9f7] pl-10 pr-4 text-sm outline-none transition focus:border-[#9ab4a2] focus:bg-white" />{search && <div className="absolute left-0 right-0 top-12 z-40 overflow-hidden rounded-xl border border-[#e6ebe7] bg-white shadow-lg">{searchResults.map((auction) => <button key={auction.id} type="button" onClick={() => { setSelectedId(auction.id); setSearch(''); setSearchOpen(false) }} className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-[#f5f8f5]"><img src={auction.image} alt="" className="size-10 rounded-lg object-cover" /><span className="min-w-0 flex-1 truncate text-sm font-semibold">{auction.title}</span><span className="text-xs text-[#74847a]">${auction.currentHighestBid}</span></button>)}{!searchResults.length && <p className="p-4 text-sm text-[#849189]">No matching live listings.</p>}</div>}</div>
@@ -734,5 +736,6 @@ export default function MarketplaceApp() {
 
     <AnimatePresence>{toast && <motion.div role="status" initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 12 }} className={`fixed bottom-20 left-1/2 z-[60] flex w-[calc(100%-32px)] max-w-md -translate-x-1/2 items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium text-white shadow-xl lg:bottom-6 ${toast.kind === 'error' ? 'bg-[#ad473c]' : 'bg-[#274c3d]'}`}><span className="flex-1">{toast.message}</span><IconButton label="Dismiss notification" className="size-8 text-white hover:bg-white/15 hover:text-white" onClick={() => setToast(null)}><X size={15} /></IconButton></motion.div>}</AnimatePresence>
       {(selectedAuction || view === 'shop') && <aside style={{ right: 'max(0px, calc(50vw - 820px))' }} className="fixed top-[68px] hidden h-[calc(100vh-68px)] w-[270px] border-l border-[#e6ebe7] bg-[#f9faf9] xl:block"><BidAdvert auction={selectedAuction ?? auctions.filter((item) => item.status === 'ACTIVE').sort((a, b) => new Date(a.endsAt).getTime() - new Date(b.endsAt).getTime())[0] ?? null} onOpen={(auction) => { setSelectedId(auction.id); setViewState('feed') }} /></aside>}
-    </div>
-  }
+    </div>}
+  </Suspense>
+}
