@@ -1,7 +1,7 @@
 import { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { Bell, BellDot, Bookmark, Compass, GraduationCap, ImagePlus, LayoutDashboard, PackageCheck, Search, ShieldCheck, ShoppingBag, ShoppingCart, Sparkles, Store, WalletCards, X } from 'lucide-react'
+import { Bell, BellDot, Bookmark, Compass, GraduationCap, ImagePlus, LayoutDashboard, Menu, PackageCheck, Search, ShieldCheck, ShoppingBag, ShoppingCart, Sparkles, Store, WalletCards, X } from 'lucide-react'
 import type { Session } from '@supabase/supabase-js'
 import { Button, IconButton } from './components/common/Button'
 import { NotificationsPanel } from './components/common/NotificationsPanel'
@@ -88,6 +88,7 @@ export default function MarketplaceApp() {
   const [toast, setToast] = useState<ToastMessage | null>(null)
   const [search, setSearch] = useState('')
   const [searchOpen, setSearchOpen] = useState(false)
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [trustScore, setTrustScore] = useState<number | null>(null)
   const [completedAuctions, setCompletedAuctions] = useState<number | null>(null)
   const [authLoading, setAuthLoading] = useState(Boolean(supabase))
@@ -786,11 +787,12 @@ export default function MarketplaceApp() {
   return <Suspense fallback={<div className="grid min-h-screen place-items-center bg-[#f5f7f5] text-sm text-[#849189]">Loading QuickResell…</div>}>
     {authMode ? <AuthPage initialMode={authMode} returnTo={returnPath(location.state)} onBack={() => setAuthMode(null)} onAuthenticated={() => { setAuthMode(null); showToast('You’re signed in. Welcome to Quick Resell.') }} /> : <div className="min-h-screen bg-[#f5f7f5] text-[#192724]">
     <header className="sticky top-0 z-30 flex h-[68px] items-center gap-3 border-b border-[#e6ebe7] bg-white/95 px-3 backdrop-blur-md sm:gap-4 sm:px-6 lg:px-8">
+      <button type="button" aria-label={mobileMenuOpen ? 'Close marketplace menu' : 'Open marketplace menu'} aria-expanded={mobileMenuOpen} onClick={() => setMobileMenuOpen((open) => !open)} className="grid size-9 shrink-0 place-items-center rounded-lg border border-[#e7ece8] text-[#52685d] transition hover:bg-[#f3f6f3] md:hidden">{mobileMenuOpen ? <X size={18} /> : <Menu size={18} />}</button>
       <button type="button" onClick={() => { setView('feed'); setSelectedId(null) }} className="flex shrink-0 items-center gap-2.5"><span className="grid size-9 place-items-center rounded-xl bg-[#d4f06b] text-[#243a33]"><ShoppingBag size={19} strokeWidth={2.5} /></span><span className="font-display text-[17px] font-bold tracking-[-.03em]">quick<span className="text-[#70917c]">resell</span></span></button>
       <div className={`relative mx-auto w-full max-w-[540px] ${searchOpen ? 'block' : 'hidden'} md:block`}><Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#96a19b]" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search marketplace" className="h-10 w-full rounded-xl border border-[#e7ece8] bg-[#f7f9f7] pl-10 pr-4 text-sm outline-none transition focus:border-[#9ab4a2] focus:bg-white" />{search && <div className="absolute left-0 right-0 top-12 z-40 overflow-hidden rounded-xl border border-[#e6ebe7] bg-white shadow-lg">{searchResults.map((auction) => <button key={auction.id} type="button" onClick={() => { setSelectedId(auction.id); setSearch(''); setSearchOpen(false) }} className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-[#f5f8f5]"><img src={auction.image} alt="" className="size-10 rounded-lg object-cover" loading="lazy" decoding="async" /><span className="min-w-0 flex-1 truncate text-sm font-semibold">{auction.title}</span><span className="text-xs text-[#74847a]">${auction.currentHighestBid}</span></button>)}{!searchResults.length && <p className="p-4 text-sm text-[#849189]">No matching live listings.</p>}</div>}</div>
       <div className="ml-auto flex shrink-0 items-center gap-1.5">
         <span className={`hidden items-center gap-1.5 rounded-full px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-[.08em] sm:inline-flex ${dataError ? 'bg-[#fff1ee] text-[#9c493d]' : 'bg-[#ebf5ee] text-[#477358]'}`}><span className={`size-1.5 rounded-full ${dataError ? 'bg-[#c45c4d]' : 'bg-[#66a178]'}`} />{apiStatus}</span>
-        <span className="relative">
+        <span className="relative hidden sm:inline-flex">
           <IconButton label={`Open cart, ${userCart.items.reduce((sum, item) => sum + item.quantity, 0)} items`} onClick={() => { setSelectedId(null); setView('cart') }}><ShoppingCart size={18} /></IconButton>
           {userCart.items.length > 0 && <span className="pointer-events-none absolute right-0 top-0 grid min-h-4 min-w-4 place-items-center rounded-full bg-[#d94b3d] px-1 text-[9px] font-bold text-white">{userCart.items.reduce((sum, item) => sum + item.quantity, 0)}</span>}
         </span>
@@ -815,6 +817,12 @@ export default function MarketplaceApp() {
         {session ? <Suspense fallback={<span className="ml-1 size-10 animate-pulse rounded-full bg-[#e9f0e8]" />}><AccountMenu session={session} onSignOut={handleSignOut} onDeleted={() => { navigate('/', { replace: true }); showToast('Your account and associated QuickResell data have been deleted.') }} /></Suspense> : <Button variant="secondary" onClick={() => setAuthMode('signin')} className="ml-1 min-h-9 rounded-lg px-3 text-xs">Sign in</Button>}
       </div>
     </header>
+    {mobileMenuOpen && <div className="fixed inset-0 z-40 md:hidden">
+      <button type="button" aria-label="Close marketplace menu" onClick={() => setMobileMenuOpen(false)} className="absolute inset-0 bg-[#14221c]/35" />
+      <nav aria-label="Marketplace menu" onClick={() => setMobileMenuOpen(false)} className="absolute left-3 right-3 top-[76px] max-h-[calc(100dvh-88px)] overflow-y-auto rounded-2xl border border-[#e4eae5] bg-white p-3 shadow-xl">
+        {nav}
+      </nav>
+    </div>}
     <NotificationsPanel open={notificationsOpen} notifications={notifications} onClose={() => setNotificationsOpen(false)} onMarkAllRead={() => void handleMarkAllNotificationsRead()} onRead={(notification) => void handleNotificationClick(notification)} />
 
     <div className="border-b border-[#e4eae5] bg-white"><div className="mx-auto flex max-w-[1640px] flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-6 lg:px-8"><div><p className="text-sm font-semibold text-[#2b4036]">Have something to sell?</p><p className="mt-0.5 text-xs text-[#7a8781]">Add product photos and list it for local buyers.</p></div><Button variant="secondary" onClick={openSellerStudio} icon={<ImagePlus size={16} />}>Sell an item</Button></div></div>
@@ -837,7 +845,6 @@ export default function MarketplaceApp() {
       <button type="button" onClick={() => setView('shop')} className={`flex min-w-16 flex-col items-center gap-1 py-1 text-[10px] font-semibold ${view === 'shop' ? 'text-[#376b59]' : 'text-[#839087]'}`}><Store size={19} />Shop</button>
       <button type="button" onClick={() => { setView('cart'); setSelectedId(null) }} className={`flex min-w-16 flex-col items-center gap-1 py-1 text-[10px] font-semibold ${view === 'cart' ? 'text-[#376b59]' : 'text-[#839087]'}`}><span className="relative"><ShoppingCart size={19} />{userCart.items.length > 0 && <span className="absolute -right-2 -top-1 grid min-h-3.5 min-w-3.5 place-items-center rounded-full bg-[#d94b3d] px-0.5 text-[8px] font-bold text-white">{userCart.items.reduce((sum, item) => sum + item.quantity, 0)}</span>}</span>Cart</button>
       <button type="button" onClick={() => { setView('orders'); setSelectedId(null) }} aria-label={unreadOrderNotifications > 0 ? `Orders, ${unreadOrderNotifications} unread order notifications` : 'Orders'} className={`flex min-w-16 flex-col items-center gap-1 py-1 text-[10px] font-semibold ${view === 'orders' ? 'text-[#376b59]' : 'text-[#839087]'}`}><span className="relative"><PackageCheck size={19} />{unreadOrderNotifications > 0 && <span className="absolute -right-2 -top-2 min-w-3 text-center text-[9px] font-bold leading-3 text-[#d94b3d]">{Math.min(unreadOrderNotifications, 9)}</span>}</span>Orders</button>
-      <button type="button" onClick={() => { setView('wallet'); setSelectedId(null) }} className={`flex min-w-16 flex-col items-center gap-1 py-1 text-[10px] font-semibold ${view === 'wallet' ? 'text-[#376b59]' : 'text-[#839087]'}`}><WalletCards size={19} />Wallet</button>
       <button type="button" onClick={() => { setView('dashboard'); setSelectedId(null) }} className={`flex min-w-16 flex-col items-center gap-1 py-1 text-[10px] font-semibold ${view === 'dashboard' ? 'text-[#376b59]' : 'text-[#839087]'}`}><LayoutDashboard size={19} />Studio</button>
     </nav>
 
