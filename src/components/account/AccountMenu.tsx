@@ -1,25 +1,34 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import type { Session } from '@supabase/supabase-js'
-import { AlertTriangle, Check, ChevronDown, ImagePlus, KeyRound, LoaderCircle, LogOut, Mail, MapPin, Settings, ShieldCheck, Trash2, UserRound, X } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, Check, ChevronDown, ImagePlus, KeyRound, LoaderCircle, LogOut, Mail, MapPin, ShieldCheck, Trash2, UserRound } from 'lucide-react'
 import { deleteAccount, getAccountProfile, updateAccountPreferences, type AccountProfile } from '../../services/api'
 import { supabase } from '../../lib/supabase'
 import { Button } from '../common/Button'
 
-type AccountSection = 'profile' | 'settings' | 'security' | 'delete'
+type AccountSection = 'profile' | 'preferences' | 'settings'
 
 const sections: Array<{ id: AccountSection; label: string; icon: typeof UserRound }> = [
   { id: 'profile', label: 'Profile', icon: UserRound },
-  { id: 'settings', label: 'Preferences', icon: Settings },
-  { id: 'security', label: 'Sign-in & security', icon: ShieldCheck },
+  { id: 'preferences', label: 'Preferences', icon: MapPin },
+  { id: 'settings', label: 'Account settings', icon: ShieldCheck },
 ]
 
-function AccountDialog({ session, initialSection, onClose, onDeleted }: {
+const accountPaths: Record<AccountSection, string> = {
+  profile: '/account/profile',
+  preferences: '/account/preferences',
+  settings: '/account/settings',
+}
+
+function AccountPage({ session, onDeleted }: {
   session: Session
-  initialSection: AccountSection
-  onClose: () => void
   onDeleted: () => void
 }) {
-  const [section, setSection] = useState(initialSection)
+  const location = useLocation()
+  const navigate = useNavigate()
+  const section: AccountSection = location.pathname === accountPaths.preferences
+    ? 'preferences'
+    : location.pathname === accountPaths.settings ? 'settings' : 'profile'
   const [profile, setProfile] = useState<AccountProfile>({
     displayName: typeof session.user.user_metadata.full_name === 'string'
       ? session.user.user_metadata.full_name
@@ -60,14 +69,6 @@ function AccountDialog({ session, initialSection, onClose, onDeleted }: {
   useEffect(() => () => {
     if (avatarPreviewUrl) URL.revokeObjectURL(avatarPreviewUrl)
   }, [avatarPreviewUrl])
-
-  useEffect(() => {
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && !busy) onClose()
-    }
-    document.addEventListener('keydown', closeOnEscape)
-    return () => document.removeEventListener('keydown', closeOnEscape)
-  }, [busy, onClose])
 
   const saveProfile = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -193,16 +194,15 @@ function AccountDialog({ session, initialSection, onClose, onDeleted }: {
     }
   }
 
-  return <div role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose() }} className="fixed inset-0 z-[70] grid place-items-center overflow-y-auto bg-[#14221c]/45 p-3 backdrop-blur-sm sm:p-6">
-    <section role="dialog" aria-modal="true" aria-labelledby="account-dialog-title" className="my-auto flex max-h-[min(850px,calc(100dvh-24px))] w-full max-w-3xl flex-col overflow-hidden rounded-[22px] border border-[#e4eae5] bg-white shadow-[0_28px_90px_rgba(17,34,26,.25)]">
-      <header className="flex items-start justify-between border-b border-[#edf1ed] px-5 py-4 sm:px-7 sm:py-5">
-        <div><p className="text-[10px] font-bold uppercase tracking-[.14em] text-[#6d8a76]">Your account</p><h2 id="account-dialog-title" className="font-display mt-1 text-xl font-semibold text-[#233b2f]">{section === 'delete' ? 'Delete account' : 'Account & settings'}</h2><p className="mt-1 text-xs text-[#839087]">{profile.email ?? session.user.email}</p></div>
-        <button type="button" onClick={onClose} disabled={busy} aria-label="Close account settings" className="grid size-9 place-items-center rounded-lg text-[#718078] transition hover:bg-[#f3f6f3] hover:text-[#263b33] disabled:opacity-50"><X size={18} /></button>
+  return <section aria-labelledby="account-page-title" className="mx-auto w-full max-w-5xl py-5 sm:py-8">
+      <button type="button" onClick={() => navigate('/')} className="mb-5 inline-flex min-h-9 items-center gap-2 text-sm font-semibold text-[#66766e] transition hover:text-[#263b33]"><ArrowLeft size={16} />Back to marketplace</button>
+      <div className="overflow-hidden rounded-2xl border border-[#e4eae5] bg-white shadow-sm">
+      <header className="border-b border-[#edf1ed] px-5 py-5 sm:px-7">
+        <p className="text-[10px] font-bold uppercase tracking-[.14em] text-[#6d8a76]">Your account</p><h1 id="account-page-title" className="font-display mt-1 text-2xl font-semibold text-[#233b2f]">{section === 'profile' ? 'Edit profile' : section === 'preferences' ? 'Preferences' : 'Account settings'}</h1><p className="mt-1 text-xs text-[#839087]">{profile.email ?? session.user.email}</p>
       </header>
-      <div className="grid min-h-0 flex-1 overflow-y-auto md:grid-cols-[190px_minmax(0,1fr)]">
+      <div className="grid min-h-0 md:grid-cols-[210px_minmax(0,1fr)]">
         <nav aria-label="Account settings" className="flex gap-1 overflow-x-auto border-b border-[#edf1ed] bg-[#fafbfa] p-3 md:flex-col md:border-b-0 md:border-r md:p-4">
-          {sections.map(({ id, label, icon: Icon }) => <button key={id} type="button" onClick={() => { setSection(id); setError(''); setNotice('') }} aria-current={section === id ? 'page' : undefined} className={`flex shrink-0 items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-xs font-semibold transition ${section === id ? 'bg-[#eaf2eb] text-[#315c45]' : 'text-[#78867e] hover:bg-white hover:text-[#293c32]'}`}><Icon size={16} />{label}</button>)}
-          <button type="button" onClick={() => { setSection('delete'); setError(''); setNotice('') }} aria-current={section === 'delete' ? 'page' : undefined} className={`flex shrink-0 items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-xs font-semibold transition md:mt-auto ${section === 'delete' ? 'bg-[#fff0ed] text-[#a33d32]' : 'text-[#a65249] hover:bg-[#fff5f2]'}`}><Trash2 size={16} />Delete account</button>
+          {sections.map(({ id, label, icon: Icon }) => <button key={id} type="button" onClick={() => { navigate(accountPaths[id]); setError(''); setNotice('') }} aria-current={section === id ? 'page' : undefined} className={`flex shrink-0 items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-xs font-semibold transition ${section === id ? 'bg-[#eaf2eb] text-[#315c45]' : 'text-[#78867e] hover:bg-white hover:text-[#293c32]'}`}><Icon size={16} />{label}</button>)}
         </nav>
 
         <div className="min-w-0 p-5 sm:p-7">
@@ -217,14 +217,14 @@ function AccountDialog({ session, initialSection, onClose, onDeleted }: {
             <Button disabled={busy} className="min-w-32 justify-center">{busy ? <><LoaderCircle size={15} className="animate-spin" />Saving…</> : 'Save profile'}</Button>
           </form>}
 
-          {section === 'settings' && <form onSubmit={(event) => void savePreferences(event)} className="space-y-5">
+          {section === 'preferences' && <form onSubmit={(event) => void savePreferences(event)} className="space-y-5">
             <div><h3 className="font-display text-lg font-semibold text-[#2b4035]">Shopping preferences</h3><p className="mt-1 text-xs leading-5 text-[#7f8c84]">Help Scout and the marketplace make more relevant recommendations. You can change or clear these any time.</p></div>
             <label className="block"><span className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold text-[#52645a]"><MapPin size={14} />Preferred campus or area</span><input maxLength={120} value={campus} onChange={(event) => setCampus(event.target.value)} className="h-11 w-full rounded-xl border border-[#dfe7e1] bg-white px-3.5 text-sm text-[#273a30] outline-none transition focus:border-[#87a58e] focus:ring-2 focus:ring-[#e5efe7]" placeholder="e.g. North Campus" /><span className="mt-1.5 block text-[10px] text-[#909b94]">Used to prioritize nearby listings and pickup options.</span></label>
             <label className="block"><span className="mb-1.5 block text-xs font-semibold text-[#52645a]">Typical shopping budget (USD)</span><input type="number" min="0" max="100000" step="1" inputMode="decimal" value={budget} onChange={(event) => setBudget(event.target.value)} className="h-11 w-full rounded-xl border border-[#dfe7e1] bg-white px-3.5 text-sm text-[#273a30] outline-none transition focus:border-[#87a58e] focus:ring-2 focus:ring-[#e5efe7]" placeholder="Leave blank to skip" /><span className="mt-1.5 block text-[10px] text-[#909b94]">Optional; this is a recommendation preference, not a spending limit.</span></label>
             <Button disabled={busy} className="min-w-36 justify-center">{busy ? <><LoaderCircle size={15} className="animate-spin" />Saving…</> : 'Save preferences'}</Button>
           </form>}
 
-          {section === 'security' && <div className="space-y-6">
+          {section === 'settings' && <div className="space-y-6">
             <div><h3 className="font-display text-lg font-semibold text-[#2b4035]">Sign-in &amp; security</h3><p className="mt-1 text-xs leading-5 text-[#7f8c84]">Changes to email require confirmation. Use a unique password you do not use on other sites.</p></div>
             <form onSubmit={(event) => void updateEmail(event)} className="space-y-3 border-b border-[#edf1ed] pb-6">
               <h4 className="flex items-center gap-2 text-sm font-semibold text-[#3a5143]"><Mail size={15} />Change email address</h4><p className="text-[11px] text-[#87938c]">Current: {profile.email ?? session.user.email}</p>
@@ -239,7 +239,7 @@ function AccountDialog({ session, initialSection, onClose, onDeleted }: {
             </form>
           </div>}
 
-          {section === 'delete' && <div className="space-y-5">
+          {section === 'settings' && <div className="mt-8 space-y-5 border-t border-[#edf1ed] pt-6">
             <div><h3 className="font-display text-lg font-semibold text-[#a33d32]">Permanently delete your account</h3><p className="mt-1 text-xs leading-5 text-[#7f8c84]">This action cannot be undone. QuickResell will permanently remove the account and its linked marketplace data.</p></div>
             <div className="rounded-xl border border-[#f1d8d3] bg-[#fff7f5] p-4">
               <div className="flex items-center gap-2 text-xs font-bold text-[#9e4439]"><AlertTriangle size={15} />What will be deleted</div>
@@ -253,20 +253,19 @@ function AccountDialog({ session, initialSection, onClose, onDeleted }: {
           </div>}
         </div>
       </div>
+      </div>
     </section>
-  </div>
 }
 
-export function AccountMenu({ session, onSignOut, onDeleted }: {
+export function AccountMenu({ session, onSignOut }: {
   session: Session
   onSignOut: () => Promise<void>
-  onDeleted: () => void
 }) {
   const [open, setOpen] = useState(false)
-  const [dialogSection, setDialogSection] = useState<AccountSection | null>(null)
   const [logoutBusy, setLogoutBusy] = useState(false)
   const [error, setError] = useState('')
   const rootRef = useRef<HTMLDivElement>(null)
+  const navigate = useNavigate()
   const displayName = typeof session.user.user_metadata.full_name === 'string'
     ? session.user.user_metadata.full_name
     : typeof session.user.user_metadata.name === 'string' ? session.user.user_metadata.name : session.user.email ?? 'Account'
@@ -307,11 +306,12 @@ export function AccountMenu({ session, onSignOut, onDeleted }: {
       </button>
       {open && <div id="account-actions" aria-label="Account actions" className="absolute right-0 top-12 z-[60] w-[min(300px,calc(100vw-24px))] overflow-hidden rounded-2xl border border-[#e3eae4] bg-white p-2 shadow-[0_18px_55px_rgba(31,54,43,.18)]">
         <div className="flex items-center gap-3 border-b border-[#edf1ed] px-3 py-3"><span className="grid size-10 shrink-0 place-items-center overflow-hidden rounded-full bg-[#e9f0e8] text-sm font-bold text-[#456555]">{typeof session.user.user_metadata.avatar_url === 'string' ? <img src={session.user.user_metadata.avatar_url} alt="" className="size-full object-cover" loading="lazy" decoding="async" /> : initial}</span><span className="min-w-0"><span className="block truncate text-sm font-semibold text-[#2a4035]">{displayName}</span><span className="mt-0.5 block truncate text-[11px] text-[#829087]">{session.user.email}</span></span></div>
-        <div className="py-1.5">{sections.map(({ id, icon: Icon }) => <button key={id} type="button" onClick={() => { setDialogSection(id); setOpen(false) }} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-xs font-semibold text-[#53675a] transition hover:bg-[#f3f7f3]"><Icon size={16} />{id === 'profile' ? 'Edit profile' : id === 'settings' ? 'Preferences' : 'Sign-in & security'}</button>)}</div>
+        <div className="py-1.5">{sections.map(({ id, label, icon: Icon }) => <button key={id} type="button" onClick={() => { navigate(accountPaths[id]); setOpen(false) }} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-xs font-semibold text-[#53675a] transition hover:bg-[#f3f7f3]"><Icon size={16} />{id === 'profile' ? 'Edit profile' : label}</button>)}</div>
         {error && <p role="alert" className="mx-2 mb-2 rounded-lg bg-[#fff5f2] px-2.5 py-2 text-[11px] leading-4 text-[#a34237]">{error}</p>}
         <button type="button" disabled={logoutBusy} onClick={() => void logout()} className="flex w-full items-center gap-3 rounded-xl border-t border-[#edf1ed] px-3 py-3 text-left text-xs font-semibold text-[#8d4c43] transition hover:bg-[#fff6f4] disabled:opacity-50"><LogOut size={16} />{logoutBusy ? 'Signing out…' : 'Sign out'}</button>
       </div>}
     </div>
-    {dialogSection && <AccountDialog session={session} initialSection={dialogSection} onClose={() => setDialogSection(null)} onDeleted={() => { setDialogSection(null); onDeleted() }} />}
   </>
 }
+
+export { AccountPage }
