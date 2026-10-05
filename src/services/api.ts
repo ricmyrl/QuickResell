@@ -40,6 +40,7 @@ export type ScoutChatReply = { reply: string; model: string }
 export type AccountProfile = {
   displayName: string | null
   email: string | null
+  avatarUrl: string | null
   preferredDormOrCampus: string | null
   budgetPreference: number | null
 }
@@ -225,7 +226,7 @@ export async function getAccountProfile(session?: Session | null): Promise<Accou
 }
 
 export async function updateAccountPreferences(
-  preferences: Pick<AccountProfile, 'preferredDormOrCampus' | 'budgetPreference'>,
+  preferences: Pick<AccountProfile, 'preferredDormOrCampus' | 'budgetPreference'> & Partial<Pick<AccountProfile, 'avatarUrl'>>,
   session?: Session | null,
 ): Promise<AccountProfile> {
   const result = await request<{ profile: AccountProfile }>('/account', {

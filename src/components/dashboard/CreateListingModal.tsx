@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { ArrowLeft, ImagePlus, LoaderCircle, MapPin, X } from 'lucide-react'
 import type { Auction, MarketplaceListing } from '../../types'
-import { createAuctionFromListing, createListing, getListingCategories, type ListingCategory } from '../../services/listingApi'
+import { createListing, getListingCategories, type ListingCategory } from '../../services/listingApi'
 import { getCurrentLocation, type Coordinates } from '../../lib/geolocation'
 import { Button, IconButton } from '../common/Button'
 import { useCurrency } from '../../lib/CurrencyContext'
@@ -31,11 +31,7 @@ export function CreateListingPage({ onClose, session, onCreated, onAuctionCreate
   const [quantityAvailable, setQuantityAvailable] = useState('1')
   const [images, setImages] = useState<SelectedImage[]>([])
   const [saleType, setSaleType] = useState<'shop' | 'auction'>('shop')
-  const [auctionEndsAt, setAuctionEndsAt] = useState(() => {
-    const date = new Date(Date.now() + 60 * 60 * 1000)
-    const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000)
-    return local.toISOString().slice(0, 16)
-  })
+  const [auctionDurationHours, setAuctionDurationHours] = useState('24')
   const previewUrls = useRef(new Set<string>())
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -73,6 +69,8 @@ export function CreateListingPage({ onClose, session, onCreated, onAuctionCreate
     setCoordinates(null)
     setLocationError('')
     setQuantityAvailable('1')
+    setSaleType('shop')
+    setAuctionDurationHours('24')
     images.forEach(({ previewUrl }) => {
       URL.revokeObjectURL(previewUrl)
       previewUrls.current.delete(previewUrl)
@@ -114,7 +112,7 @@ export function CreateListingPage({ onClose, session, onCreated, onAuctionCreate
 
     setBusy(true)
     try {
-      const listing = await createListing({
+      const result = await createListing({
         title: title.trim(),
         description: description.trim(),
         categoryId,
@@ -122,38 +120,11 @@ export function CreateListingPage({ onClose, session, onCreated, onAuctionCreate
         ...(originalPrice.trim() && originalPriceUsd !== null ? { originalPrice: originalPriceUsd } : {}),
         locationCampus: locationCampus.trim(),
         quantityAvailable: Number(quantityAvailable),
+        ...(saleType === 'auction' ? { auctionDurationHours: Number(auctionDurationHours) } : {}),
         ...(coordinates ? { coordinates } : {}),
       }, images.map(({ file }) => file), session)
-
-      if (saleType === 'auction') {
-        if (!auctionEndsAt) {
-          throw new Error('Choose an auction end date and time.')
-        }
-        const selectedEnd = new Date(auctionEndsAt)
-        if (!Number.isFinite(selectedEnd.getTime()) || selectedEnd.getTime() <= Date.now()) {
-          throw new Error('Auction end time must be in the future.')
-        }
-        const createdAuction = await createAuctionFromListing(listing.id, selectedEnd.toISOString(), session, { isPublic: true })
-        onCreated(listing)
-        onAuctionCreated?.({
-          ...createdAuction,
-          startingPrice: listing.price,
-          seller: {
-            id: createdAuction.sellerId,
-            displayName: listing.seller.displayName,
-            avatarUrl: listing.seller.avatarUrl,
-            trustScore: listing.seller.trustScore,
-            completedAuctions: 0,
-          },
-          bids: [],
-          noReserve: createdAuction.reservePrice == null,
-        })
-        reset()
-        onClose()
-        return
-      }
-
-      onCreated(listing)
+      onCreated(result.listing)
+      if (result.auction) onAuctionCreated?.(result.auction)
       reset()
       onClose()
     } catch (caught) {
@@ -191,10 +162,10 @@ export function CreateListingPage({ onClose, session, onCreated, onAuctionCreate
         </div>
         {saleType === 'auction' && <div className="space-y-2">
           <label className="block">
-            <span className="mb-1.5 block text-xs font-semibold text-[#43564b]">Auction closes</span>
-            <input type="datetime-local" value={auctionEndsAt} min={new Date(Date.now() + 60 * 1000).toISOString().slice(0, 16)} onChange={(event) => setAuctionEndsAt(event.target.value)} className="h-11 w-full rounded-xl border border-[#dfe7e1] bg-white px-3 text-sm outline-none focus:border-[#86a995] focus:ring-4 focus:ring-[#e7f0e9]" required />
+            <span className="mb-1.5 block text-xs font-semibold text-[#43564b]">Auction duration (hours)</span>
+            <input type="number" inputMode="numeric" min="1" max="720" step="1" value={auctionDurationHours} onChange={(event) => setAuctionDurationHours(event.target.value)} className="h-11 w-full rounded-xl border border-[#dfe7e1] bg-white px-3 text-sm outline-none focus:border-[#86a995] focus:ring-4 focus:ring-[#e7f0e9]" required />
           </label>
-          <p className="text-[11px] leading-5 text-[#7a8781]">This product will leave the regular shop feed once the auction room is created and will stay visible in the live auction feed until the selected end time.</p>
+          <p className="text-[11px] leading-5 text-[#7a8781]">Set from 1 hour to 30 days. Auction duration can only be selected while publishing the product.</p>
         </div>}
       </div>
       <div className="block"><span className="mb-1.5 block text-xs font-semibold text-[#43564b]">Pickup location</span><div className="flex flex-col gap-2 sm:flex-row"><input maxLength={120} value={locationCampus} onChange={(event) => setLocationCampus(event.target.value)} placeholder="e.g. North Hall" className="h-11 min-w-0 flex-1 rounded-xl border border-[#dfe7e1] px-3 text-sm outline-none focus:border-[#86a995]" /><Button type="button" variant="secondary" disabled={locationBusy} onClick={() => void addCurrentLocation()} icon={<MapPin size={15} />} className="min-h-11 whitespace-nowrap">{locationBusy ? 'Getting location…' : coordinates ? 'Location added' : 'Use my location'}</Button></div><p className="mt-1.5 text-[11px] leading-4 text-[#87938d]">Adding your approximate location helps nearby shoppers find this product. It is stored with this listing.</p>{locationError && <p role="alert" className="mt-1 text-xs text-[#a34237]">{locationError}</p>}</div>

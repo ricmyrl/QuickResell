@@ -1,6 +1,6 @@
 import type { Session } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabase'
-import type { ListingReactionCounts, ListingReactionType, MarketplaceListing, ProductComment } from '../types'
+import type { Auction, ListingReactionCounts, ListingReactionType, MarketplaceListing, ProductComment } from '../types'
 import type { Coordinates } from '../lib/geolocation'
 
 const pageHostApiUrl = typeof window !== 'undefined' && window.location.protocol === 'http:'
@@ -29,6 +29,7 @@ export type NewListing = {
   originalPrice?: number
   locationCampus: string
   quantityAvailable: number
+  auctionDurationHours?: number
   coordinates?: Coordinates
 }
 
@@ -115,49 +116,6 @@ export async function getMyListings(session: Session): Promise<MarketplaceListin
   return result.items.map(normalizeListing)
 }
 
-export async function createAuctionFromListing(
-  listingId: string,
-  endsAt: string,
-  session: Session,
-  options?: { isPublic?: boolean; reservePrice?: number | null },
-): Promise<{ id: string; postId: string; title: string; description: string; category: string; location: string; image: string; currentHighestBid: number; endsAt: string; status: 'ACTIVE' | 'PENDING_APPROVAL' | 'SOLD' | 'REJECTED' | 'CLOSED'; isPublic: boolean; reservePrice?: number | null; sellerId: string }> {
-  const result = await apiRequest<{ auctionRoom: {
-    id: string
-    postId: string
-    sellerId: string
-    currentHighestBid: number
-    endsAt: string
-    status: 'ACTIVE' | 'PENDING_APPROVAL' | 'SOLD' | 'REJECTED' | 'CLOSED'
-    isPublic: boolean
-    reservePrice?: number | null
-    post?: { id: string; title: string; description?: string | null; category?: { name: string }; locationCampus?: string | null; images?: Array<{ url: string }> }
-  } }>(`/listings/${encodeURIComponent(listingId)}/auction`, session, {
-    method: 'POST',
-    body: JSON.stringify({
-      endsAt,
-      ...(options?.isPublic !== undefined ? { isPublic: options.isPublic } : {}),
-      ...(options?.reservePrice !== undefined ? { reservePrice: options.reservePrice } : {}),
-    }),
-  })
-
-  const room = result.auctionRoom
-  return {
-    id: room.id,
-    postId: room.postId,
-    title: room.post?.title ?? '',
-    description: room.post?.description ?? '',
-    category: room.post?.category?.name ?? 'Uncategorized',
-    location: room.post?.locationCampus ?? 'Location not provided',
-    image: room.post?.images?.[0]?.url ?? '',
-    currentHighestBid: room.currentHighestBid,
-    endsAt: room.endsAt,
-    status: room.status,
-    isPublic: room.isPublic,
-    reservePrice: room.reservePrice,
-    sellerId: room.sellerId,
-  }
-}
-
 export async function getWatchlist(session?: Session | null): Promise<string[]> {
   const result = await apiRequest<{ items: string[] }>('/watchlist', session)
   return result.items
@@ -177,7 +135,7 @@ export async function createListing(
   details: NewListing,
   images: File[],
   session: Session,
-): Promise<MarketplaceListing> {
+): Promise<{ listing: MarketplaceListing; auction: Auction | null }> {
   if (!supabase) throw new Error('Supabase Storage is not configured.')
   if (!session.user.email_confirmed_at) throw new Error('Confirm your email before creating a listing.')
   if (images.length < 1 || images.length > maxImages) throw new Error(`Choose between 1 and ${maxImages} product images.`)
@@ -204,7 +162,7 @@ export async function createListing(
     }
 
     const { coordinates, ...listingDetails } = details
-    const result = await apiRequest<{ listing: ApiListing }>('/listings', session, {
+    const result = await apiRequest<{ listing: ApiListing; auctionRoom: { id: string; postId: string; sellerId: string; currentHighestBid: number; endsAt: string; status: Auction['status']; isPublic: boolean; reservePrice?: number | null } | null }>('/listings', session, {
       method: 'POST',
       body: JSON.stringify({
         ...listingDetails,
@@ -215,7 +173,36 @@ export async function createListing(
         imageUrls,
       }),
     })
-    return normalizeListing(result.listing)
+    const listing = normalizeListing(result.listing)
+    const room = result.auctionRoom
+    return {
+      listing,
+      auction: room ? {
+        id: room.id,
+        postId: room.postId,
+        sellerId: room.sellerId,
+        title: listing.title,
+        description: listing.description,
+        category: listing.category,
+        location: listing.location,
+        image: listing.image,
+        startingPrice: listing.price,
+        currentHighestBid: room.currentHighestBid,
+        endsAt: room.endsAt,
+        status: room.status,
+        isPublic: room.isPublic,
+        reservePrice: room.reservePrice,
+        seller: {
+          id: listing.seller.id,
+          displayName: listing.seller.displayName,
+          avatarUrl: listing.seller.avatarUrl,
+          trustScore: listing.seller.trustScore,
+          completedAuctions: 0,
+        },
+        bids: [],
+        noReserve: room.reservePrice == null,
+      } : null,
+    }
   } catch (error) {
     if (uploadedPaths.length) {
       const { error: cleanupError } = await storage.from(storageBucket).remove(uploadedPaths)

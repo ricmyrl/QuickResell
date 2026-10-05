@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import type { Session } from '@supabase/supabase-js'
-import { AlertTriangle, Check, ChevronDown, KeyRound, LoaderCircle, LogOut, Mail, MapPin, Settings, ShieldCheck, Trash2, UserRound, X } from 'lucide-react'
+import { AlertTriangle, Check, ChevronDown, ImagePlus, KeyRound, LoaderCircle, LogOut, Mail, MapPin, Settings, ShieldCheck, Trash2, UserRound, X } from 'lucide-react'
 import { deleteAccount, getAccountProfile, updateAccountPreferences, type AccountProfile } from '../../services/api'
 import { supabase } from '../../lib/supabase'
 import { Button } from '../common/Button'
@@ -25,10 +25,13 @@ function AccountDialog({ session, initialSection, onClose, onDeleted }: {
       ? session.user.user_metadata.full_name
       : typeof session.user.user_metadata.name === 'string' ? session.user.user_metadata.name : null,
     email: session.user.email ?? null,
+    avatarUrl: typeof session.user.user_metadata.avatar_url === 'string' ? session.user.user_metadata.avatar_url : null,
     preferredDormOrCampus: '',
     budgetPreference: null,
   })
   const [name, setName] = useState(profile.displayName ?? '')
+  const [avatarFile, setAvatarFile] = useState<File | null>(null)
+  const [avatarPreviewUrl, setAvatarPreviewUrl] = useState<string | null>(null)
   const [campus, setCampus] = useState('')
   const [budget, setBudget] = useState('')
   const [newEmail, setNewEmail] = useState('')
@@ -54,6 +57,10 @@ function AccountDialog({ session, initialSection, onClose, onDeleted }: {
     return () => { cancelled = true }
   }, [userId])
 
+  useEffect(() => () => {
+    if (avatarPreviewUrl) URL.revokeObjectURL(avatarPreviewUrl)
+  }, [avatarPreviewUrl])
+
   useEffect(() => {
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape' && !busy) onClose()
@@ -73,14 +80,33 @@ function AccountDialog({ session, initialSection, onClose, onDeleted }: {
       if (parsedBudget !== null && (!Number.isFinite(parsedBudget) || parsedBudget < 0 || parsedBudget > 100000)) {
         throw new Error('Enter a budget between 0 and 100,000, or leave it blank.')
       }
-      const { error: authError } = await supabase.auth.updateUser({ data: { full_name: normalizedName } })
+      let avatarUrl = profile.avatarUrl
+      if (avatarFile) {
+        if (!['image/jpeg', 'image/png', 'image/webp'].includes(avatarFile.type)) throw new Error('Use a JPEG, PNG, or WebP image for your avatar.')
+        if (avatarFile.size > 5 * 1024 * 1024) throw new Error('Your avatar must be 5 MB or smaller.')
+        const extension = avatarFile.type.split('/')[1].replace('jpeg', 'jpg')
+        const path = `${userId}/${crypto.randomUUID()}.${extension}`
+        const { data, error: uploadError } = await supabase.storage.from('avatars').upload(path, avatarFile, {
+          contentType: avatarFile.type,
+          upsert: false,
+        })
+        if (uploadError) throw uploadError
+        avatarUrl = supabase.storage.from('avatars').getPublicUrl(data.path).data.publicUrl
+      }
+      const { error: authError } = await supabase.auth.updateUser({ data: { full_name: normalizedName, ...(avatarFile ? { avatar_url: avatarUrl } : {}) } })
       if (authError) throw authError
       const updatedProfile = await updateAccountPreferences({
         preferredDormOrCampus: campus.trim(),
         budgetPreference: parsedBudget,
+        ...(avatarFile ? { avatarUrl } : {}),
       })
       const nextProfile = { ...updatedProfile, displayName: normalizedName }
       setProfile(nextProfile)
+      setAvatarFile(null)
+      setAvatarPreviewUrl((current) => {
+        if (current) URL.revokeObjectURL(current)
+        return null
+      })
       setNotice('Your profile and preferences have been saved.')
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Your profile could not be saved. Please try again.')
@@ -185,6 +211,7 @@ function AccountDialog({ session, initialSection, onClose, onDeleted }: {
 
           {section === 'profile' && <form onSubmit={(event) => void saveProfile(event)} className="space-y-5">
             <div><h3 className="font-display text-lg font-semibold text-[#2b4035]">Public profile</h3><p className="mt-1 text-xs leading-5 text-[#7f8c84]">These details help campus buyers and sellers recognize you. Your email is never shown as your public name.</p></div>
+            <div className="flex items-center gap-3"><span className="grid size-16 shrink-0 place-items-center overflow-hidden rounded-full bg-[#e9f0e8] text-lg font-bold text-[#456555]">{avatarPreviewUrl || profile.avatarUrl ? <img src={avatarPreviewUrl ?? profile.avatarUrl ?? ''} alt="Profile avatar" className="size-full object-cover" /> : name.trim().slice(0, 1).toUpperCase()}</span><div className="min-w-0"><label className="inline-flex min-h-9 cursor-pointer items-center gap-2 rounded-lg border border-[#dfe7e1] px-3 text-xs font-semibold text-[#456555] transition hover:bg-[#f5f8f5]"><ImagePlus size={14} />{avatarFile ? 'Choose another photo' : 'Add profile photo'}<input type="file" accept="image/jpeg,image/png,image/webp" className="sr-only" onChange={(event) => { const file = event.target.files?.[0] ?? null; setAvatarFile(file); setAvatarPreviewUrl((current) => { if (current) URL.revokeObjectURL(current); return file ? URL.createObjectURL(file) : null }); event.target.value = '' }} /></label><p className="mt-1.5 text-[10px] text-[#87938d]">JPEG, PNG, or WebP · up to 5 MB</p></div></div>
             <label className="block"><span className="mb-1.5 block text-xs font-semibold text-[#52645a]">Display name</span><input required minLength={2} maxLength={80} autoComplete="name" value={name} onChange={(event) => setName(event.target.value)} className="h-11 w-full rounded-xl border border-[#dfe7e1] bg-white px-3.5 text-sm text-[#273a30] outline-none transition focus:border-[#87a58e] focus:ring-2 focus:ring-[#e5efe7]" placeholder="How people will see you" /></label>
             <div className="rounded-xl border border-[#e9eee9] bg-[#f8faf8] p-3.5"><div className="flex items-center gap-2 text-xs font-semibold text-[#4d6557]"><Mail size={14} />Sign-in email</div><p className="mt-1.5 break-all text-xs text-[#718078]">{profile.email ?? 'Email not available'}</p><p className="mt-1 text-[10px] leading-4 text-[#909b94]">To change your email, use Sign-in &amp; security. A confirmation is required.</p></div>
             <Button disabled={busy} className="min-w-32 justify-center">{busy ? <><LoaderCircle size={15} className="animate-spin" />Saving…</> : 'Save profile'}</Button>
