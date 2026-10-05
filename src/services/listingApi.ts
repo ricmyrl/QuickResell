@@ -115,6 +115,49 @@ export async function getMyListings(session: Session): Promise<MarketplaceListin
   return result.items.map(normalizeListing)
 }
 
+export async function createAuctionFromListing(
+  listingId: string,
+  endsAt: string,
+  session: Session,
+  options?: { isPublic?: boolean; reservePrice?: number | null },
+): Promise<{ id: string; postId: string; title: string; description: string; category: string; location: string; image: string; currentHighestBid: number; endsAt: string; status: 'ACTIVE' | 'PENDING_APPROVAL' | 'SOLD' | 'REJECTED' | 'CLOSED'; isPublic: boolean; reservePrice?: number | null; sellerId: string }> {
+  const result = await apiRequest<{ auctionRoom: {
+    id: string
+    postId: string
+    sellerId: string
+    currentHighestBid: number
+    endsAt: string
+    status: 'ACTIVE' | 'PENDING_APPROVAL' | 'SOLD' | 'REJECTED' | 'CLOSED'
+    isPublic: boolean
+    reservePrice?: number | null
+    post?: { id: string; title: string; description?: string | null; category?: { name: string }; locationCampus?: string | null; images?: Array<{ url: string }> }
+  } }>(`/listings/${encodeURIComponent(listingId)}/auction`, session, {
+    method: 'POST',
+    body: JSON.stringify({
+      endsAt,
+      ...(options?.isPublic !== undefined ? { isPublic: options.isPublic } : {}),
+      ...(options?.reservePrice !== undefined ? { reservePrice: options.reservePrice } : {}),
+    }),
+  })
+
+  const room = result.auctionRoom
+  return {
+    id: room.id,
+    postId: room.postId,
+    title: room.post?.title ?? '',
+    description: room.post?.description ?? '',
+    category: room.post?.category?.name ?? 'Uncategorized',
+    location: room.post?.locationCampus ?? 'Location not provided',
+    image: room.post?.images?.[0]?.url ?? '',
+    currentHighestBid: room.currentHighestBid,
+    endsAt: room.endsAt,
+    status: room.status,
+    isPublic: room.isPublic,
+    reservePrice: room.reservePrice,
+    sellerId: room.sellerId,
+  }
+}
+
 export async function getWatchlist(session?: Session | null): Promise<string[]> {
   const result = await apiRequest<{ items: string[] }>('/watchlist', session)
   return result.items
