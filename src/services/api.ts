@@ -46,10 +46,10 @@ export type AccountProfile = {
 }
 export type SellerVerificationStatus = 'NOT_STARTED' | 'PENDING' | 'VERIFIED' | 'REJECTED' | 'REVIEW_REQUIRED'
 export type SellerCheckStatus = 'NOT_STARTED' | 'PENDING' | 'VERIFIED' | 'REJECTED' | 'REVIEW_REQUIRED'
+export type SellerVerificationProvider = 'paystack' | 'smile'
 export type SellerVerification = {
   identityStatus: SellerCheckStatus
   payoutStatus: SellerCheckStatus
-  provider?: 'smile' | 'manual_review'
   identityVerifiedAt: string | null
   payoutVerifiedAt: string | null
   bankName: string | null
@@ -58,7 +58,7 @@ export type SellerVerification = {
 }
 export type SellerBank = { name: string; code: string }
 export type SellerIdentityVerificationSession = {
-  provider: 'smile' | 'manual_review'
+  provider: SellerVerificationProvider
   reference: string
   requiresManualReview?: boolean
   autoApproved?: boolean
@@ -252,8 +252,13 @@ export async function getAccountProfile(session?: Session | null): Promise<Accou
 }
 
 export async function getSellerVerification(session?: Session | null): Promise<SellerVerification | null> {
-  const result = await request<{ provider: 'smile' | 'manual_review'; verification: SellerVerification | null }>('/seller/verification', {}, session)
-  return result.verification ? { ...result.verification, provider: result.provider } : null
+  const result = await request<{ provider: SellerVerificationProvider; verification: SellerVerification | null }>('/seller/verification', {}, session)
+  return result.verification
+}
+
+export async function getSellerVerificationProvider(session?: Session | null): Promise<SellerVerificationProvider> {
+  const result = await request<{ provider: SellerVerificationProvider; verification: SellerVerification | null }>('/seller/verification', {}, session)
+  return result.provider
 }
 
 export async function getSellerBanks(session?: Session | null): Promise<SellerBank[]> {
@@ -272,8 +277,8 @@ export async function startSellerIdentityVerification(session?: Session | null):
 export async function submitManualSellerReview(
   input: { legalName: string; idType: 'NIN' | 'BVN'; idNumber: string; bankCode: string; accountNumber: string; consent: boolean },
   session?: Session | null,
-): Promise<{ status: SellerCheckStatus; provider: 'manual_review'; requiresManualReview: boolean; autoApproved: boolean; payoutStatus: SellerCheckStatus; bankName: string; accountLast4: string }> {
-  return request<{ status: SellerCheckStatus; provider: 'manual_review'; requiresManualReview: boolean; autoApproved: boolean; payoutStatus: SellerCheckStatus; bankName: string; accountLast4: string }>('/seller/verification/identity/manual-review', {
+): Promise<{ status: SellerCheckStatus; provider: 'paystack'; requiresManualReview: boolean; autoApproved: boolean; payoutStatus: SellerCheckStatus; bankName: string; accountLast4: string }> {
+  return request<{ status: SellerCheckStatus; provider: 'paystack'; requiresManualReview: boolean; autoApproved: boolean; payoutStatus: SellerCheckStatus; bankName: string; accountLast4: string }>('/seller/verification/identity/manual-review', {
     method: 'POST',
     body: JSON.stringify(input),
   }, session)
