@@ -15,13 +15,12 @@ const sections: Array<{ id: AccountSection; label: string; icon: typeof UserRoun
   { id: 'settings', label: 'Account settings', icon: ShieldCheck },
 ]
 
-function AccountPage({ session, initialSection, onClose, onDeleted }: {
+function AccountPage({ session, section, onClose, onDeleted }: {
   session: Session
-  initialSection: AccountSection
+  section: AccountSection
   onClose: () => void
   onDeleted: () => void
 }) {
-  const [section, setSection] = useState(initialSection)
   const [profile, setProfile] = useState<AccountProfile>({
     displayName: typeof session.user.user_metadata.full_name === 'string'
       ? session.user.user_metadata.full_name
@@ -81,10 +80,6 @@ function AccountPage({ session, initialSection, onClose, onDeleted }: {
       if (!supabase) throw new Error('Account management is not configured.')
       const normalizedName = name.trim()
       if (normalizedName.length < 2 || normalizedName.length > 80) throw new Error('Your name must be between 2 and 80 characters.')
-      const parsedBudget = budget.trim() ? Number(budget) : null
-      if (parsedBudget !== null && (!Number.isFinite(parsedBudget) || parsedBudget < 0 || parsedBudget > 100000)) {
-        throw new Error('Enter a budget between 0 and 100,000, or leave it blank.')
-      }
       let avatarUrl = profile.avatarUrl
       if (avatarFile) {
         if (!['image/jpeg', 'image/png', 'image/webp'].includes(avatarFile.type)) throw new Error('Use a JPEG, PNG, or WebP image for your avatar.')
@@ -101,8 +96,8 @@ function AccountPage({ session, initialSection, onClose, onDeleted }: {
       const { error: authError } = await supabase.auth.updateUser({ data: { full_name: normalizedName, ...(avatarFile ? { avatar_url: avatarUrl } : {}) } })
       if (authError) throw authError
       const updatedProfile = await updateAccountPreferences({
-        preferredDormOrCampus: campus.trim(),
-        budgetPreference: parsedBudget,
+        preferredDormOrCampus: profile.preferredDormOrCampus ?? '',
+        budgetPreference: profile.budgetPreference,
         ...(avatarFile ? { avatarUrl } : {}),
       })
       const nextProfile = { ...updatedProfile, displayName: normalizedName }
@@ -198,15 +193,12 @@ function AccountPage({ session, initialSection, onClose, onDeleted }: {
     }
   }
 
-  return createPortal(<AnimatePresence initial={false}>{<motion.div className="fixed inset-0 z-[90] flex items-end justify-center bg-[#101a17]/55 sm:items-center sm:p-4" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose() }}>
-    <motion.section role="dialog" aria-modal="true" aria-labelledby="account-page-title" className="flex max-h-[90dvh] w-full flex-col overflow-hidden rounded-t-[22px] bg-white shadow-[0_30px_100px_rgba(10,26,20,.25)] sm:max-h-[min(760px,88dvh)] sm:max-w-[600px] sm:rounded-[22px]" initial={{ y: '12%', opacity: .8 }} animate={{ y: 0, opacity: 1 }} exit={{ y: '12%', opacity: .8 }} transition={{ type: 'spring', stiffness: 320, damping: 34 }}>
+  return createPortal(<AnimatePresence initial={false}>{<motion.div className="fixed inset-0 z-[90] grid place-items-center bg-[#101a17]/55 p-3 sm:p-4" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose() }}>
+    <motion.section role="dialog" aria-modal="true" aria-labelledby="account-page-title" className="flex max-h-[90dvh] w-full max-w-[560px] flex-col overflow-hidden rounded-[22px] bg-white shadow-[0_30px_100px_rgba(10,26,20,.25)]" initial={{ scale: .96, opacity: .8 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: .96, opacity: .8 }} transition={{ type: 'spring', stiffness: 320, damping: 34 }}>
       <header className="flex items-center justify-between border-b border-[#edf1ed] px-5 py-4 sm:px-6">
         <div className="min-w-0"><p className="text-[10px] font-bold uppercase tracking-[.14em] text-[#6d8a76]">Your account</p><h2 id="account-page-title" className="font-display mt-1 text-lg font-semibold text-[#233b2f]">{section === 'profile' ? 'Edit profile' : section === 'preferences' ? 'Preferences' : 'Account settings'}</h2><p className="mt-0.5 truncate text-xs text-[#839087]">{profile.email ?? session.user.email}</p></div>
         <IconButton label="Close account settings" onClick={onClose}><X size={18} /></IconButton>
       </header>
-      <nav aria-label="Account settings" className="flex gap-1 overflow-x-auto border-b border-[#edf1ed] bg-[#fafbfa] p-2.5 sm:px-4">
-        {sections.map(({ id, label, icon: Icon }) => <button key={id} type="button" onClick={() => { setSection(id); setError(''); setNotice('') }} aria-current={section === id ? 'page' : undefined} className={`inline-flex min-h-9 shrink-0 items-center gap-2 rounded-lg px-3 text-xs font-semibold transition ${section === id ? 'bg-[#eaf2eb] text-[#315c45]' : 'text-[#78867e] hover:bg-white hover:text-[#293c32]'}`}><Icon size={15} />{label}</button>)}
-      </nav>
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 pb-[max(16px,env(safe-area-inset-bottom))] sm:px-6 sm:py-5">
           {error && <div role="alert" className="mb-4 rounded-xl border border-[#f0d7d2] bg-[#fff5f2] px-3.5 py-3 text-xs leading-5 text-[#a34237]">{error}</div>}
           {notice && <div role="status" className="mb-4 flex items-start gap-2 rounded-xl border border-[#dceadf] bg-[#f2f8f2] px-3.5 py-3 text-xs leading-5 text-[#41694d]"><Check size={15} className="mt-0.5 shrink-0" />{notice}</div>}
@@ -313,6 +305,6 @@ export function AccountMenu({ session, onSignOut, onDeleted }: {
         <button type="button" disabled={logoutBusy} onClick={() => void logout()} className="flex w-full items-center gap-3 rounded-xl border-t border-[#edf1ed] px-3 py-3 text-left text-xs font-semibold text-[#8d4c43] transition hover:bg-[#fff6f4] disabled:opacity-50"><LogOut size={16} />{logoutBusy ? 'Signing out…' : 'Sign out'}</button>
       </div>}
     </div>
-    {dialogSection && <AccountPage session={session} initialSection={dialogSection} onClose={() => setDialogSection(null)} onDeleted={() => { setDialogSection(null); onDeleted() }} />}
+    {dialogSection && <AccountPage key={dialogSection} session={session} section={dialogSection} onClose={() => setDialogSection(null)} onDeleted={() => { setDialogSection(null); onDeleted() }} />}
   </>
 }
