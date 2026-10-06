@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { Session } from '@supabase/supabase-js'
-import { BadgeCheck, Banknote, Camera, CircleAlert, Fingerprint, LoaderCircle, LockKeyhole, ShieldCheck } from 'lucide-react'
+import { BadgeCheck, Camera, CircleAlert, Fingerprint, LoaderCircle, LockKeyhole, ShieldCheck } from 'lucide-react'
 import {
   cancelSellerIdentityVerification,
   getSellerBanks,
@@ -9,7 +9,6 @@ import {
   recordSmileVerificationSubmission,
   startSellerIdentityVerification,
   submitManualSellerReview,
-  verifySellerPayoutAccount,
   type SellerBank,
   type SellerCheckStatus,
   type SellerVerification,
@@ -25,111 +24,6 @@ const statusLabels: Record<SellerCheckStatus, string> = {
   VERIFIED: 'Verified',
   REJECTED: 'Not verified',
   REVIEW_REQUIRED: 'Needs review',
-}
-
-const bankPrefixMap: Record<string, string[]> = {
-  '011': ['011'],
-  '044': ['044'],
-  '058': ['058'],
-  '070': ['070'],
-  '221': ['221'],
-  '232': ['232'],
-  '302': ['302'],
-  '033': ['033'],
-  '214': ['214'],
-  '215': ['215'],
-  '081': ['081'],
-  '090': ['090'],
-  '076': ['076'],
-  '901': ['901'],
-  '035': ['035'],
-  '023': ['023'],
-  '057': ['057'],
-  '084': ['084'],
-  '063': ['063'],
-  '032': ['032'],
-  '050': ['050'],
-  '060': ['060'],
-  '083': ['083'],
-  '082': ['082'],
-  '026': ['026'],
-  '072': ['072'],
-  '122': ['122'],
-  '100': ['100'],
-  '103': ['103'],
-  '201': ['201'],
-  '309': ['309'],
-  '311': ['311'],
-  '320': ['320'],
-  '325': ['325'],
-  '328': ['328'],
-  '329': ['329'],
-  '330': ['330'],
-  '332': ['332'],
-  '340': ['340'],
-  '401': ['401'],
-  '403': ['403'],
-  '404': ['404'],
-  '406': ['406'],
-  '407': ['407'],
-  '409': ['409'],
-  '412': ['412'],
-  '413': ['413'],
-  '414': ['414'],
-  '415': ['415'],
-  '416': ['416'],
-  '417': ['417'],
-  '418': ['418'],
-  '419': ['419'],
-  '420': ['420'],
-  '421': ['421'],
-  '422': ['422'],
-  '423': ['423'],
-  '424': ['424'],
-  '425': ['425'],
-  '426': ['426'],
-  '427': ['427'],
-  '428': ['428'],
-  '429': ['429'],
-  '430': ['430'],
-  '431': ['431'],
-  '432': ['432'],
-  '433': ['433'],
-  '434': ['434'],
-  '435': ['435'],
-  '436': ['436'],
-  '437': ['437'],
-  '438': ['438'],
-  '439': ['439'],
-  '440': ['440'],
-  '441': ['441'],
-  '442': ['442'],
-  '443': ['443'],
-  '444': ['444'],
-  '445': ['445'],
-  '446': ['446'],
-  '447': ['447'],
-  '448': ['448'],
-  '449': ['449'],
-  '450': ['450'],
-  '451': ['451'],
-  '452': ['452'],
-  '453': ['453'],
-  '454': ['454'],
-  '455': ['455'],
-  '456': ['456'],
-  '457': ['457'],
-  '458': ['458'],
-  '459': ['459'],
-  '460': ['460'],
-  '461': ['461'],
-  '462': ['462'],
-  '463': ['463'],
-  '464': ['464'],
-  '465': ['465'],
-  '466': ['466'],
-  '467': ['467'],
-  '468': ['468'],
 }
 
 function VerificationState({ status }: { status: SellerCheckStatus }) {
@@ -181,11 +75,8 @@ export function SellerVerificationPage({ session, emailConfirmed, onRequestSignI
   const [manualPaystackFlow, setManualPaystackFlow] = useState(false)
   const [loading, setLoading] = useState(true)
   const [identityBusy, setIdentityBusy] = useState(false)
-  const [payoutBusy, setPayoutBusy] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
-  const [detectedBankName, setDetectedBankName] = useState('')
-  const [bankSupportWarning, setBankSupportWarning] = useState('')
 
   const refreshVerification = useCallback(async () => {
     if (!session || !emailConfirmed) return
@@ -332,54 +223,6 @@ export function SellerVerificationPage({ session, emailConfirmed, onRequestSignI
     }
   }
 
-  const autoSelectBankFromAccountNumber = useCallback((value: string) => {
-    if (!banks.length || bankCode || value.length < 6) {
-      if (!value) {
-        setDetectedBankName('')
-        setBankSupportWarning('')
-      }
-      return
-    }
-
-    const normalized = value.replace(/\D/g, '').slice(0, 10)
-    const candidate = banks.find((item) => {
-      const prefixes = bankPrefixMap[item.code] ?? []
-      return prefixes.some((prefix) => normalized.startsWith(prefix))
-    })
-
-    if (candidate) {
-      setBankCode(candidate.code)
-      setDetectedBankName(candidate.name)
-      setBankSupportWarning('')
-      return
-    }
-
-    setDetectedBankName('')
-    setBankSupportWarning(normalized.length >= 6 ? 'This account prefix is not in Paystack\'s supported Nigerian bank list.' : '')
-  }, [bankCode, banks])
-
-  const verifyPayout = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    if (!session || !emailConfirmed) {
-      if (!session) onRequestSignIn()
-      else setError('Confirm your email before verifying a payout account.')
-      return
-    }
-    setPayoutBusy(true)
-    setError('')
-    setNotice('')
-    try {
-      const result = await verifySellerPayoutAccount(bankCode, accountNumber, session)
-      setAccountNumber('')
-      setNotice(`${result.bankName} account ending ${result.accountLast4} verified.`)
-      await refreshVerification()
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Payout account could not be verified.')
-    } finally {
-      setPayoutBusy(false)
-    }
-  }
-
   if (!session) return <section className="mx-auto max-w-3xl rounded-[18px] border border-[#e3eae4] bg-white p-6 text-center"><h1 className="font-display text-xl font-semibold text-[#283d32]">Seller verification</h1><p className="mt-2 text-sm text-[#7c8881]">Sign in to verify your seller account.</p><Button onClick={onRequestSignIn} className="mt-4">Sign in</Button></section>
 
   if (!emailConfirmed) return <section className="mx-auto max-w-3xl rounded-[18px] border border-[#ead9b0] bg-[#fff9e9] p-6"><h1 className="font-display text-xl font-semibold text-[#4f442e]">Confirm your email first</h1><p className="mt-2 text-sm leading-6 text-[#7a6a45]">Confirm your QuickResell email before starting seller identity verification.</p></section>
@@ -440,34 +283,6 @@ export function SellerVerificationPage({ session, emailConfirmed, onRequestSignI
         {fullyVerified && verification?.bankName && <p className="mt-4 flex items-center gap-2 text-sm text-[#477358]"><BadgeCheck size={16} />{verification.bankName} · account ending {verification.bankAccountLast4}</p>}
       </section>
 
-      {!paystackProvider && <section className={`rounded-[16px] border border-[#e2e9e3] bg-white p-5 sm:p-6 ${identityStatus !== 'VERIFIED' ? 'opacity-65' : ''}`}>
-        <div className="flex flex-wrap items-center justify-between gap-3"><div className="flex items-center gap-3"><span className="grid size-10 place-items-center rounded-xl bg-[#edf4ed] text-[#4c7758]"><Banknote size={19} /></span><div><h2 className="text-sm font-semibold text-[#2c4236]">Payout account</h2><p className="mt-0.5 text-xs text-[#829087]">Verify a Nigerian bank account in your legal name</p></div></div><VerificationState status={payoutStatus} /></div>
-        {identityStatus !== 'VERIFIED' && <div className="mt-4 space-y-3">
-          <p className="text-sm leading-5 text-[#718078]">{manualPaystackFlow
-            ? 'Paystack needs your legal name, 11-digit NIN or BVN, selected bank, 10-digit account number, and consent.'
-            : 'Complete the single form in the Identity and payout verification section above to verify with Paystack.'}</p>
-        </div>}
-        {payoutStatus === 'VERIFIED' && verification?.bankName && <p className="mt-4 flex items-center gap-2 text-sm text-[#477358]"><BadgeCheck size={16} />{verification.bankName} · account ending {verification.bankAccountLast4}</p>}
-        {identityStatus === 'VERIFIED' && payoutStatus !== 'VERIFIED' && !paystackProvider && <form onSubmit={(event) => void verifyPayout(event)} className="mt-4 grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
-          <label className="block"><span className="mb-1.5 block text-xs font-semibold text-[#52645a]">Bank</span><select value={bankCode} onChange={(event) => {
-            const nextValue = event.target.value
-            setBankCode(nextValue)
-            setDetectedBankName(nextValue ? (banks.find((bank) => bank.code === nextValue)?.name ?? '') : '')
-            setBankSupportWarning(nextValue ? '' : '')
-          }} disabled={identityStatus !== 'VERIFIED' || banks.length === 0 || payoutBusy} required className="h-11 w-full rounded-xl border border-[#dfe7e1] bg-white px-3 text-sm text-[#273a30] outline-none focus:border-[#86a995] disabled:bg-[#f4f6f4]"><option value="">{banks.length ? 'Choose your bank' : 'Loading banks…'}</option>{banks.map((bank) => <option key={bank.code} value={bank.code}>{bank.name}</option>)}</select></label>
-          <label className="block"><span className="mb-1.5 block text-xs font-semibold text-[#52645a]">Account number</span><input type="text" inputMode="numeric" autoComplete="off" minLength={10} maxLength={10} pattern="[0-9]{10}" value={accountNumber} onChange={(event) => {
-            const nextValue = event.target.value.replace(/\D/g, '').slice(0, 10)
-            setAccountNumber(nextValue)
-            autoSelectBankFromAccountNumber(nextValue)
-          }} disabled={identityStatus !== 'VERIFIED' || payoutBusy} required placeholder="10 digits" className="h-11 w-full rounded-xl border border-[#dfe7e1] px-3 text-sm text-[#273a30] outline-none focus:border-[#86a995] disabled:bg-[#f4f6f4]" /></label>
-          <Button type="submit" disabled={identityStatus !== 'VERIFIED' || payoutBusy || accountNumber.length !== 10 || !bankCode} icon={payoutBusy ? <LoaderCircle size={15} className="animate-spin" /> : <ShieldCheck size={15} />}>{payoutBusy ? 'Checking…' : 'Verify account'}</Button>
-        </form>}
-        {detectedBankName && !bankCode && <p className="mt-2 text-[11px] font-medium text-[#3d6a50]">Detected bank: {detectedBankName}</p>}
-        {bankCode && <p className="mt-2 text-[11px] font-medium text-[#3d6a50]">Selected bank: {banks.find((bank) => bank.code === bankCode)?.name ?? detectedBankName}</p>}
-        {bankSupportWarning && <p className="mt-2 text-[11px] font-medium text-[#9a4e3e]">{bankSupportWarning} Use the dropdown to choose a supported bank from the Paystack list.</p>}
-        {identityStatus !== 'VERIFIED' && payoutStatus !== 'VERIFIED' && <p className="mt-4 text-xs text-[#87938b]">Complete identity verification first. Only the bank name and last four digits are retained.</p>}
-        {identityStatus === 'VERIFIED' && payoutStatus !== 'VERIFIED' && !paystackProvider && <p className="mt-3 text-[11px] leading-5 text-[#87938b]">Paystack confirms the account holder name. QuickResell does not save the full account number.</p>}
-      </section>}
     </div>
 
     {fullyVerified && <div className="mt-5 flex flex-wrap items-center justify-between gap-4 rounded-[14px] border border-[#dceadf] bg-[#f2f8f2] p-4"><p className="flex items-center gap-2 text-sm font-semibold text-[#41694d]"><ShieldCheck size={17} />Seller verification complete</p><Button onClick={onVerified}>Continue to add a product</Button></div>}
