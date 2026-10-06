@@ -60,7 +60,7 @@ function returnPath(state: unknown): string {
 }
 
 function isKnownPath(pathname: string): boolean {
-  return ['/', '/shop', '/cart', '/orders', '/seller', '/seller/products/new', '/watchlist', '/wallet', '/payments/callback', '/auth/sign-in', '/auth/register'].includes(pathname) || /^\/auctions\/[^/]+$/.test(pathname)
+  return ['/', '/shop', '/cart', '/orders', '/seller', '/seller/products/new', '/seller/verification', '/watchlist', '/wallet', '/payments/callback', '/auth/sign-in', '/auth/register'].includes(pathname) || /^\/auctions\/[^/]+$/.test(pathname)
 }
 
 function mergeAuctionPatch(auction: Auction, patch: Partial<Auction>): Auction {
@@ -651,6 +651,7 @@ export default function MarketplaceApp() {
     }
     setSelectedId(null)
     setView('dashboard')
+    navigate('/seller', { replace: location.pathname === '/seller' || location.pathname.startsWith('/seller/') })
   }
 
   useEffect(() => {
