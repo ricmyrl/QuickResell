@@ -32,7 +32,7 @@ export function ShoppingCartPage({ items, loading, error, onShop, onSetQuantity,
   onShop: () => void
   onSetQuantity: (postId: string, quantity: number) => Promise<void>
   onRemove: (postId: string) => Promise<void>
-  onCheckout: () => Promise<PurchaseOrder>
+  onCheckout: () => Promise<PurchaseOrder | null>
   onRefresh: () => Promise<void>
 }) {
   const { formatUsd } = useCurrency()
@@ -65,7 +65,10 @@ export function ShoppingCartPage({ items, loading, error, onShop, onSetQuantity,
       return
     }
     setBusy(true); setNotice('')
-    try { setOrder(await onCheckout()) }
+    try {
+      const completedOrder = await onCheckout()
+      if (completedOrder) setOrder(completedOrder)
+    }
     catch (caught) { setNotice(caught instanceof Error ? caught.message : 'Your order could not be placed.') }
     finally { setBusy(false) }
   }

@@ -11,9 +11,9 @@ import { useCurrency } from './lib/CurrencyContext'
 import { useAuctionFeedRealtime } from './hooks/useAuctionFeedRealtime'
 import { useShoppingCart } from './hooks/useShoppingCart'
 import { askScout, closeAuction, createScoutSupportRequest, getAuctionWatchlist, getNotifications, getPublicAuctions, getSellerAuctions, markAllNotificationsRead, markNotificationRead, placeBid, removeAuctionWatchlistRule, saveAuctionWatchlistRule, submitScoutFeedback, submitVerdict } from './services/api'
-import { getStoreListings, initializePayment, initializeWalletTopUp, verifyPayment, verifyWalletTopUp } from './services/cartApi'
+import { getStoreListings, initializePayment, initializeWalletTopUp } from './services/cartApi'
 import { getListingCategories, getMyListings, getWatchlist, toggleWatchlist } from './services/listingApi'
-import type { Auction, AuctionWatchlistRule, MarketplaceListing, NotificationItem, PurchaseOrder, Verdict } from './types'
+import type { Auction, AuctionWatchlistRule, MarketplaceListing, NotificationItem, Verdict } from './types'
 
 type View = 'feed' | 'shop' | 'cart' | 'dashboard' | 'watchlist' | 'orders' | 'wallet'
 type AuthMode = 'signin' | 'register'
@@ -31,6 +31,7 @@ const ShoppingCartPage = lazy(() => import('./components/cart/ShoppingCartPage')
 const PurchaseHistoryPage = lazy(() => import('./components/cart/PurchaseHistoryPage').then((module) => ({ default: module.PurchaseHistoryPage })))
 const StorePage = lazy(() => import('./components/store/StorePage').then((module) => ({ default: module.StorePage })))
 const WalletPage = lazy(() => import('./components/wallet/WalletPage').then((module) => ({ default: module.WalletPage })))
+const PaystackReturnPage = lazy(() => import('./components/cart/PaystackReturnPage').then((module) => ({ default: module.PaystackReturnPage })))
 
 const viewPaths: Record<View, string> = {
   feed: '/',
@@ -59,7 +60,7 @@ function returnPath(state: unknown): string {
 }
 
 function isKnownPath(pathname: string): boolean {
-  return ['/', '/shop', '/cart', '/orders', '/seller', '/seller/products/new', '/watchlist', '/wallet', '/auth/sign-in', '/auth/register'].includes(pathname) || /^\/auctions\/[^/]+$/.test(pathname)
+  return ['/', '/shop', '/cart', '/orders', '/seller', '/seller/products/new', '/watchlist', '/wallet', '/payments/callback', '/auth/sign-in', '/auth/register'].includes(pathname) || /^\/auctions\/[^/]+$/.test(pathname)
 }
 
 function mergeAuctionPatch(auction: Auction, patch: Partial<Auction>): Auction {
@@ -92,6 +93,10 @@ export default function MarketplaceApp() {
   const view = viewForPath(location.pathname)
   const selectedId = location.pathname.match(/^\/auctions\/([^/]+)$/)?.[1] ?? null
   const authMode: AuthMode | null = location.pathname === '/auth/register' ? 'register' : location.pathname === '/auth/sign-in' ? 'signin' : null
+  const isPaymentCallback = location.pathname === '/payments/callback'
+  const paymentReturnParams = new URLSearchParams(location.search)
+  const paymentReference = paymentReturnParams.get('reference') ?? paymentReturnParams.get('trxref') ?? ''
+  const paymentTransactionType = paymentReturnParams.get('type') === 'WALLET_TOPUP' ? 'WALLET_TOPUP' : 'CART_CHECKOUT'
   const [auctions, setAuctions] = useState<Auction[]>([])
   const [listings, setListings] = useState<MarketplaceListing[]>([])
   const [sellerAuctions, setSellerAuctions] = useState<Auction[]>([])
@@ -316,35 +321,6 @@ export default function MarketplaceApp() {
 
   function showToast(message: string, kind: ToastMessage['kind'] = 'success') { setToast({ message, kind }) }
 
-  const loadPaystackScript = async () => {
-    if (typeof window === 'undefined' || window.PaystackPop) return
-    await new Promise<void>((resolve, reject) => {
-      const existing = document.querySelector('script[src="https://js.paystack.co/v1/inline.js"]') as HTMLScriptElement | null
-      if (existing) {
-        if (existing.dataset.loaded === 'true') {
-          resolve()
-          return
-        }
-        existing.addEventListener('load', () => {
-          existing.dataset.loaded = 'true'
-          resolve()
-        }, { once: true })
-        existing.addEventListener('error', () => reject(new Error('Paystack script failed to load.')), { once: true })
-        return
-      }
-
-      const script = document.createElement('script')
-      script.src = 'https://js.paystack.co/v1/inline.js'
-      script.async = true
-      script.onload = () => {
-        script.dataset.loaded = 'true'
-        resolve()
-      }
-      script.onerror = () => reject(new Error('Paystack script failed to load.'))
-      document.body.appendChild(script)
-    })
-  }
-
   const resendConfirmation = async () => {
     if (!supabase || !session?.user.email) return
     const { error } = await supabase.auth.resend({ type: 'signup', email: session.user.email, options: { emailRedirectTo: window.location.origin } })
@@ -467,7 +443,15 @@ export default function MarketplaceApp() {
     }
   }
 
-  const handlePlaceOrder = async () => {
+  const openPaystackCheckout = (authorizationUrl: string) => {
+    const url = new URL(authorizationUrl)
+    if (url.protocol !== 'https:' || url.hostname !== 'checkout.paystack.com') {
+      throw new Error('Paystack returned an invalid secure checkout URL.')
+    }
+    window.location.assign(url.toString())
+  }
+
+  const handlePlaceOrder = async (): Promise<null> => {
     if (!session) {
       setAuthMode('signin')
       throw new Error('Sign in before checking out.')
@@ -477,57 +461,29 @@ export default function MarketplaceApp() {
     const subtotalCents = userCart.items.reduce((sum, item) => sum + item.unitPriceCents * item.quantity, 0)
     if (subtotalCents <= 0) throw new Error('Add at least one item to your cart before paying.')
 
-    await loadPaystackScript()
     const payment = await initializePayment(session)
-    const publicKey = import.meta.env.VITE_PAYSTACK_PUBLIC_KEY
-    if (!publicKey) throw new Error('Add VITE_PAYSTACK_PUBLIC_KEY to your frontend environment.')
+    openPaystackCheckout(payment.authorization_url)
+    return await new Promise<null>(() => undefined)
+  }
 
-    const order = await new Promise<PurchaseOrder>((resolve, reject) => {
-      const paystackHandler = window.PaystackPop?.setup({
-        key: publicKey,
-        email: session.user.email ?? '',
-        amount: payment.amountCents,
-        ref: payment.reference,
-        currency: payment.currency,
-        metadata: {
-          custom_fields: [
-            { display_name: 'QuickResell buyer', variable_name: 'buyer_id', value: session.user.id },
-          ],
-        },
-        callback: (response: { reference?: string }) => {
-          void (async () => {
-            try {
-              const reference = response.reference ?? payment.reference
-              const verification = await verifyPayment(reference, session)
-              if (!verification.verified) {
-                throw new Error('Payment verification failed.')
-              }
-              const nextOrder = await userCart.checkout(reference)
-              setListings((current) => current.map((listing) => {
-                const purchased = nextOrder.items.find((item) => item.postId === listing.id)
-                if (!purchased) return listing
-                const quantityAvailable = Math.max(0, listing.quantityAvailable - purchased.quantity)
-                return { ...listing, quantityAvailable }
-              }).filter((listing) => listing.quantityAvailable > 0))
-              resolve(nextOrder)
-            } catch (caught) {
-              reject(caught instanceof Error ? caught : new Error('Payment verification failed.'))
-            }
-          })()
-        },
-        onClose: () => {
-          reject(new Error('Payment cancelled. Your cart remains unchanged.'))
-        },
-      })
+  const completePaymentCheckout = async (reference: string) => {
+    const order = await userCart.checkout(reference)
+    setListings((current) => current.map((listing) => {
+      const purchased = order.items.find((item) => item.postId === listing.id)
+      if (!purchased) return listing
+      const quantityAvailable = Math.max(0, listing.quantityAvailable - purchased.quantity)
+      return { ...listing, quantityAvailable }
+    }).filter((listing) => listing.quantityAvailable > 0))
+  }
 
-      if (!paystackHandler) {
-        reject(new Error('Paystack could not be loaded.'))
-        return
-      }
-      paystackHandler.openIframe()
-    })
-
-    return order
+  const completePaystackReturn = (transactionType: 'CART_CHECKOUT' | 'WALLET_TOPUP') => {
+    if (transactionType === 'CART_CHECKOUT') {
+      showToast('Payment confirmed. Your order has been placed.')
+      navigate('/orders', { replace: true })
+    } else {
+      showToast('Wallet deposit completed successfully.')
+      navigate('/wallet', { replace: true })
+    }
   }
 
   const handleAddWalletFunds = async (amountCents: number) => {
@@ -537,40 +493,9 @@ export default function MarketplaceApp() {
     }
     if (!emailConfirmed) throw new Error('Confirm your email before adding money to your wallet.')
 
-    const publicKey = import.meta.env.VITE_PAYSTACK_PUBLIC_KEY
-    if (!publicKey) throw new Error('Add VITE_PAYSTACK_PUBLIC_KEY to your frontend environment.')
-    await loadPaystackScript()
     const payment = await initializeWalletTopUp(amountCents, session)
-
-    await new Promise<void>((resolve, reject) => {
-      let verifying = false
-      const paystackHandler = window.PaystackPop?.setup({
-        key: publicKey,
-        email: session.user.email ?? '',
-        amount: payment.amountCents,
-        ref: payment.reference,
-        currency: payment.currency,
-        callback: (result) => {
-          verifying = true
-          void verifyWalletTopUp(result.reference ?? payment.reference, session).then((verification) => {
-            if (!verification.verified) throw new Error('Payment verification failed.')
-            showToast('Wallet deposit completed successfully.')
-            resolve()
-          }).catch((caught: unknown) => {
-            reject(caught instanceof Error ? caught : new Error('Wallet payment could not be verified.'))
-          })
-        },
-        onClose: () => {
-          if (!verifying) reject(new Error('Payment cancelled. Your wallet was not changed.'))
-        },
-      })
-
-      if (!paystackHandler) {
-        reject(new Error('Paystack could not be loaded.'))
-        return
-      }
-      paystackHandler.openIframe()
-    })
+    openPaystackCheckout(payment.authorization_url)
+    return await new Promise<void>(() => undefined)
   }
 
   const handleListingCreated = (listing: MarketplaceListing) => {
@@ -851,6 +776,7 @@ export default function MarketplaceApp() {
       </nav>
     </div>}
     <NotificationsPanel open={notificationsOpen} notifications={notifications} onClose={() => setNotificationsOpen(false)} onMarkAllRead={() => void handleMarkAllNotificationsRead()} onRead={(notification) => void handleNotificationClick(notification)} />
+    {isPaymentCallback && <Suspense fallback={<div className="fixed inset-0 z-[100] grid place-items-center bg-[#14221c]/65 text-sm text-white">Verifying Paystack payment…</div>}><PaystackReturnPage reference={paymentReference} transactionType={paymentTransactionType} session={session} authLoading={authLoading} emailConfirmed={emailConfirmed} onRequestSignIn={() => setAuthMode('signin', `${location.pathname}${location.search}`)} onCompleteCheckout={completePaymentCheckout} onComplete={completePaystackReturn} /></Suspense>}
 
     <div className="border-b border-[#e4eae5] bg-white"><div className="mx-auto flex max-w-[1640px] flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-6 lg:px-8"><div><p className="text-sm font-semibold text-[#2b4036]">Have something to sell?</p><p className="mt-0.5 text-xs text-[#7a8781]">Add product photos and list it for local buyers.</p></div><Button variant="secondary" onClick={openSellerStudio} icon={<ImagePlus size={16} />}>Sell an item</Button></div></div>
 

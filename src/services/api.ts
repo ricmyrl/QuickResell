@@ -44,6 +44,27 @@ export type AccountProfile = {
   preferredDormOrCampus: string | null
   budgetPreference: number | null
 }
+export type SellerVerificationStatus = 'NOT_STARTED' | 'PENDING' | 'VERIFIED' | 'REJECTED' | 'REVIEW_REQUIRED'
+export type SellerCheckStatus = 'NOT_STARTED' | 'PENDING' | 'VERIFIED' | 'REJECTED' | 'REVIEW_REQUIRED'
+export type SellerVerification = {
+  identityStatus: SellerCheckStatus
+  payoutStatus: SellerCheckStatus
+  identityVerifiedAt: string | null
+  payoutVerifiedAt: string | null
+  bankName: string | null
+  bankAccountLast4: string | null
+  failureCode: string | null
+}
+export type SellerBank = { name: string; code: string }
+export type SmileVerificationSession = {
+  reference: string
+  token: string
+  environment: 'sandbox' | 'production'
+  callbackUrl: string
+  partnerDetails: { partner_id: string; name: string; logo_url: string; policy_url: string; theme_color: string }
+  idSelection: { NG: string[] }
+  partnerParams: { internal_reference: string }
+}
 
 export class ApiError extends Error {
   readonly status: number
@@ -223,6 +244,52 @@ export async function markAllNotificationsRead(session?: Session | null): Promis
 export async function getAccountProfile(session?: Session | null): Promise<AccountProfile> {
   const result = await request<{ profile: AccountProfile }>('/account', {}, session)
   return result.profile
+}
+
+export async function getSellerVerification(session?: Session | null): Promise<SellerVerification | null> {
+  const result = await request<{ verification: SellerVerification | null }>('/seller/verification', {}, session)
+  return result.verification
+}
+
+export async function getSellerBanks(session?: Session | null): Promise<SellerBank[]> {
+  const result = await request<{ banks: SellerBank[] }>('/seller/verification/banks', {}, session)
+  return result.banks
+}
+
+export async function startSellerIdentityVerification(session?: Session | null): Promise<SmileVerificationSession> {
+  const result = await request<SmileVerificationSession>('/seller/verification/identity/start', {
+    method: 'POST',
+    body: JSON.stringify({ consent: true }),
+  }, session)
+  return result
+}
+
+export async function recordSmileVerificationSubmission(
+  input: { reference: string; jobId: string; smileUserId: string },
+  session?: Session | null,
+): Promise<void> {
+  await request<{ status: SellerCheckStatus }>('/seller/verification/identity/submitted', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  }, session)
+}
+
+export async function cancelSellerIdentityVerification(reference: string, session?: Session | null): Promise<void> {
+  await request<{ cancelled: boolean }>('/seller/verification/identity/cancel', {
+    method: 'POST',
+    body: JSON.stringify({ reference }),
+  }, session)
+}
+
+export async function verifySellerPayoutAccount(
+  bankCode: string,
+  accountNumber: string,
+  session?: Session | null,
+): Promise<{ verified: boolean; bankName: string; accountLast4: string }> {
+  return request<{ verified: boolean; bankName: string; accountLast4: string }>('/seller/verification/payout-account', {
+    method: 'POST',
+    body: JSON.stringify({ bankCode, accountNumber }),
+  }, session)
 }
 
 export async function updateAccountPreferences(

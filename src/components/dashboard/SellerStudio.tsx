@@ -9,8 +9,10 @@ import { CreateListingPage } from './CreateListingModal'
 import { SellerVerdictModal } from './SellerVerdictModal'
 import { useCurrency } from '../../lib/CurrencyContext'
 import { getCurrentLocation } from '../../lib/geolocation'
+import { getSellerVerification } from '../../services/api'
 import { updateListingLocation } from '../../services/listingApi'
 import { CartApiError, getSellerOrders, updateOrderFulfillment } from '../../services/cartApi'
+import { SellerVerificationPage } from './SellerVerificationPage'
 
 type StudioSection = 'overview' | 'inventory' | 'auctions' | 'orders'
 type StudioProps = {
@@ -51,6 +53,7 @@ function SellerStudio({ auctions, userId, trustScore, completedAuctions, session
   const [ordersErrorRequestId, setOrdersErrorRequestId] = useState('')
   const [ordersReloadKey, setOrdersReloadKey] = useState(0)
   const [fulfillmentBusyId, setFulfillmentBusyId] = useState<string | null>(null)
+  const [sellerVerificationComplete, setSellerVerificationComplete] = useState(false)
 
   useEffect(() => {
     if (!session) return
@@ -67,6 +70,20 @@ function SellerStudio({ auctions, userId, trustScore, completedAuctions, session
     })
     return () => { cancelled = true }
   }, [session, ordersReloadKey])
+
+  useEffect(() => {
+    if (!session || !emailConfirmed) {
+      setSellerVerificationComplete(false)
+      return
+    }
+    let cancelled = false
+    void getSellerVerification(session).then((verification) => {
+      if (!cancelled) setSellerVerificationComplete(verification?.identityStatus === 'VERIFIED' && verification.payoutStatus === 'VERIFIED')
+    }).catch(() => {
+      if (!cancelled) setSellerVerificationComplete(false)
+    })
+    return () => { cancelled = true }
+  }, [session, emailConfirmed])
 
   const pending = auctions.filter((auction) => auction.status === 'PENDING_APPROVAL' && (!userId || auction.sellerId === userId))
   const active = auctions.filter((auction) => auction.status === 'ACTIVE' && (!userId || auction.sellerId === userId))
@@ -91,7 +108,7 @@ function SellerStudio({ auctions, userId, trustScore, completedAuctions, session
       onNotice('Confirm your email before adding products.', 'error')
       return
     }
-    navigate('/seller/products/new', { state: { returnTo: location.pathname } })
+    navigate(sellerVerificationComplete ? '/seller/products/new' : '/seller/verification', { state: { returnTo: location.pathname } })
   }
 
   const reviewVerdict = async (decision: Verdict) => {
@@ -137,6 +154,9 @@ function SellerStudio({ auctions, userId, trustScore, completedAuctions, session
 
   if (location.pathname === '/seller/products/new') {
     return <CreateListingPage onClose={() => navigate('/seller')} session={session} onCreated={onListingCreated} onAuctionCreated={onAuctionCreated} />
+  }
+  if (location.pathname === '/seller/verification') {
+    return <SellerVerificationPage session={session} emailConfirmed={emailConfirmed} onRequestSignIn={onRequestSignIn} onVerified={() => navigate('/seller/products/new')} />
   }
 
   return <section className="min-w-0 pb-2 enter-up">
