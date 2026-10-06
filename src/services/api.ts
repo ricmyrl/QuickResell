@@ -56,14 +56,18 @@ export type SellerVerification = {
   failureCode: string | null
 }
 export type SellerBank = { name: string; code: string }
-export type SmileVerificationSession = {
+export type SellerIdentityVerificationSession = {
+  provider: 'smile' | 'manual_review'
   reference: string
-  token: string
-  environment: 'sandbox' | 'production'
-  callbackUrl: string
-  partnerDetails: { partner_id: string; name: string; logo_url: string; policy_url: string; theme_color: string }
-  idSelection: { NG: string[] }
-  partnerParams: { internal_reference: string }
+  requiresManualReview?: boolean
+  autoApproved?: boolean
+  token?: string
+  environment?: 'sandbox' | 'production'
+  callbackUrl?: string
+  partnerDetails?: { partner_id: string; name: string; logo_url: string; policy_url: string; theme_color: string }
+  idSelection?: { NG: string[] }
+  partnerParams?: { internal_reference: string }
+  message?: string
 }
 
 export class ApiError extends Error {
@@ -256,12 +260,22 @@ export async function getSellerBanks(session?: Session | null): Promise<SellerBa
   return result.banks
 }
 
-export async function startSellerIdentityVerification(session?: Session | null): Promise<SmileVerificationSession> {
-  const result = await request<SmileVerificationSession>('/seller/verification/identity/start', {
+export async function startSellerIdentityVerification(session?: Session | null): Promise<SellerIdentityVerificationSession> {
+  const result = await request<SellerIdentityVerificationSession>('/seller/verification/identity/start', {
     method: 'POST',
     body: JSON.stringify({ consent: true }),
   }, session)
   return result
+}
+
+export async function submitManualSellerReview(
+  input: { legalName: string; idType: 'NIN' | 'BVN' | 'Passport'; consent: boolean },
+  session?: Session | null,
+): Promise<{ status: SellerCheckStatus; provider: 'manual_review'; requiresManualReview: boolean; autoApproved: boolean }> {
+  return request<{ status: SellerCheckStatus; provider: 'manual_review'; requiresManualReview: boolean; autoApproved: boolean }>('/seller/verification/identity/manual-review', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  }, session)
 }
 
 export async function recordSmileVerificationSubmission(

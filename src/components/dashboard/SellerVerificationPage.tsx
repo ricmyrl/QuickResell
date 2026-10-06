@@ -7,6 +7,7 @@ import {
   getSellerVerification,
   recordSmileVerificationSubmission,
   startSellerIdentityVerification,
+  submitManualSellerReview,
   verifySellerPayoutAccount,
   type SellerBank,
   type SellerCheckStatus,
@@ -66,6 +67,8 @@ export function SellerVerificationPage({ session, emailConfirmed, onRequestSignI
   const [bankCode, setBankCode] = useState('')
   const [accountNumber, setAccountNumber] = useState('')
   const [consent, setConsent] = useState(false)
+  const [manualLegalName, setManualLegalName] = useState('')
+  const [manualIdType, setManualIdType] = useState<'NIN' | 'BVN' | 'Passport'>('NIN')
   const [loading, setLoading] = useState(true)
   const [identityBusy, setIdentityBusy] = useState(false)
   const [payoutBusy, setPayoutBusy] = useState(false)
@@ -128,19 +131,34 @@ export function SellerVerificationPage({ session, emailConfirmed, onRequestSignI
     setNotice('')
     let reference = ''
     try {
-      const smile = await startSellerIdentityVerification(session)
-      reference = smile.reference
+      const identitySession = await startSellerIdentityVerification(session)
+      reference = identitySession.reference
+
+      if (identitySession.provider === 'manual_review') {
+        const review = await submitManualSellerReview({
+          legalName: manualLegalName.trim() || session.user.user_metadata?.full_name || 'Seller account holder',
+          idType: manualIdType,
+          consent: true,
+        }, session)
+        setNotice(review.autoApproved
+          ? 'Manual identity review was accepted for this demo. You can continue to payout verification.'
+          : 'Your identity details were submitted for manual review. QuickResell will confirm your seller status soon.')
+        await refreshVerification()
+        setIdentityBusy(false)
+        return
+      }
+
       await loadSmileScript()
       const runSmile = (window as SmileScriptWindow).SmileIdentity
       if (!runSmile) throw new Error('Smile ID verification is unavailable in this browser.')
       runSmile({
-        token: smile.token,
+        token: identitySession.token!,
         product: 'biometric_kyc',
-        callback_url: smile.callbackUrl,
-        environment: smile.environment,
-        partner_details: smile.partnerDetails,
-        id_selection: smile.idSelection,
-        partner_params: { ...smile.partnerParams, user_id: session.user.id },
+        callback_url: identitySession.callbackUrl!,
+        environment: identitySession.environment!,
+        partner_details: identitySession.partnerDetails!,
+        id_selection: identitySession.idSelection!,
+        partner_params: { ...(identitySession.partnerParams ?? { internal_reference: reference }), user_id: session.user.id },
         onResult: (result) => {
           if (result.status === 'cancelled') {
             void cancelSellerIdentityVerification(reference, session).then(refreshVerification).catch(() => undefined).finally(() => setIdentityBusy(false))
@@ -221,8 +239,16 @@ export function SellerVerificationPage({ session, emailConfirmed, onRequestSignI
           : identityStatus === 'PENDING' ? <p role="status" className="mt-4 flex items-center gap-2 text-sm text-[#85682f]"><LoaderCircle size={16} className="animate-spin" />Smile ID is reviewing your submission. This status refreshes automatically.</p>
             : identityStatus === 'REVIEW_REQUIRED' ? <p className="mt-4 flex items-start gap-2 text-sm leading-5 text-[#8a642d]"><CircleAlert size={16} className="mt-0.5 shrink-0" />Your submission needs additional review. Contact QuickResell support to continue.</p>
               : <div className="mt-4 space-y-4">
-                <div className="rounded-xl bg-[#f7f9f7] p-3.5 text-xs leading-5 text-[#66766e]"><p>Smile ID will collect your NIN or BVN details and capture selfie/liveness frames. QuickResell stores the verification result only; it does not store your ID number, selfie, or liveness images.</p><a href="https://usesmileid.com/privacy" target="_blank" rel="noreferrer" className="mt-2 inline-block font-semibold text-[#41694d] underline">Smile ID privacy information</a></div>
-                <label className="flex items-start gap-2.5 text-xs leading-5 text-[#5e6f64]"><input type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)} className="mt-1 size-4 accent-[#315f49]" /><span>I consent to Smile ID processing my identity details and biometric selfie/liveness data to verify my seller account and confirm payout ownership.</span></label>
+                <div className="rounded-xl bg-[#f7f9f7] p-3.5 text-xs leading-5 text-[#66766e]"><p>QuickResell supports either Smile ID or a free manual review fallback when a specialist KYC provider is unavailable. The free fallback keeps identity verification server-side and does not store raw identity documents or selfies.</p><a href="https://usesmileid.com/privacy" target="_blank" rel="noreferrer" className="mt-2 inline-block font-semibold text-[#41694d] underline">Smile ID privacy information</a></div>
+                <div className="grid gap-3 sm:grid-cols-[1.2fr_0.8fr]">
+                  <label className="block text-xs font-semibold text-[#52645a]"><span className="mb-1.5 block">Legal name</span><input type="text" value={manualLegalName} onChange={(event) => setManualLegalName(event.target.value)} placeholder="Full legal name" className="h-11 w-full rounded-xl border border-[#dfe7e1] bg-white px-3 text-sm text-[#273a30] outline-none focus:border-[#86a995]" /></label>
+                  <label className="block text-xs font-semibold text-[#52645a]"><span className="mb-1.5 block">ID type</span><select value={manualIdType} onChange={(event) => setManualIdType(event.target.value as 'NIN' | 'BVN' | 'Passport')} className="h-11 w-full rounded-xl border border-[#dfe7e1] bg-white px-3 text-sm text-[#273a30] outline-none focus:border-[#86a995]">
+                    <option value="NIN">NIN</option>
+                    <option value="BVN">BVN</option>
+                    <option value="Passport">Passport</option>
+                  </select></label>
+                </div>
+                <label className="flex items-start gap-2.5 text-xs leading-5 text-[#5e6f64]"><input type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)} className="mt-1 size-4 accent-[#315f49]" /><span>I consent to QuickResell processing my identity details for seller verification and matching them against the payout account holder name.</span></label>
                 <Button type="button" disabled={!consent || identityBusy || loading} onClick={() => void startIdentityCheck()} icon={identityBusy ? <LoaderCircle size={16} className="animate-spin" /> : <Camera size={16} />}>{identityBusy ? 'Starting identity check…' : identityStatus === 'REJECTED' ? 'Retry identity check' : 'Start identity check'}</Button>
               </div>}
       </section>

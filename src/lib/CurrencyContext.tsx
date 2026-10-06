@@ -8,6 +8,8 @@ const regionCurrency: Record<string, string> = {
   GR: 'EUR', HR: 'EUR', IE: 'EUR', IT: 'EUR', LT: 'EUR', LU: 'EUR', LV: 'EUR', MT: 'EUR',
   NL: 'EUR', PT: 'EUR', SI: 'EUR', SK: 'EUR',
 }
+const supportedCurrencies = new Set<string>(['USD', ...new Set(Object.values(regionCurrency))])
+const currencyStorageKey = 'quickresell.currency'
 
 type CurrencyContextValue = {
   currency: string
@@ -15,6 +17,7 @@ type CurrencyContextValue = {
   ratesReady: boolean
   ratesUpdatedAt: string | null
   rateError: string
+  setCurrency: (currency: string) => void
   formatUsd: (amount: number, fractionDigits?: number) => string
   localToUsd: (amount: number) => number | null
   usdToLocal: (amount: number) => number | null
@@ -40,11 +43,64 @@ function localeCurrency(): string {
   return region ? regionCurrency[region] ?? 'USD' : 'USD'
 }
 
+function readStoredCurrency(): string | null {
+  if (typeof window === 'undefined') return null
+  const stored = window.localStorage.getItem(currencyStorageKey)
+  if (!stored) return null
+  const normalized = stored.trim().toUpperCase()
+  return supportedCurrencies.has(normalized) ? normalized : null
+}
+
+function writeStoredCurrency(currency: string): void {
+  if (typeof window === 'undefined') return
+  window.localStorage.setItem(currencyStorageKey, currency.toUpperCase())
+}
+
+async function detectCurrencyFromLocation(): Promise<string> {
+  try {
+    const response = await fetch('https://ipapi.co/json/', { headers: { Accept: 'application/json' } })
+    if (!response.ok) throw new Error('Location resolution failed')
+
+    const payload = await response.json() as { country_code?: string; currency?: string }
+    const locationCurrency = payload.currency?.trim().toUpperCase()
+    if (locationCurrency && supportedCurrencies.has(locationCurrency)) return locationCurrency
+
+    const region = payload.country_code?.trim().toUpperCase()
+    if (region && regionCurrency[region]) return regionCurrency[region]
+  } catch {
+    // Fall back to the browser locale and then USD if no location data is available.
+  }
+
+  return localeCurrency()
+}
+
 export function CurrencyProvider({ children }: { children: ReactNode }) {
-  const [currency] = useState(localeCurrency)
+  const [currency, setCurrencyState] = useState<string>(() => readStoredCurrency() ?? 'USD')
   const [rates, setRates] = useState<Record<string, number>>({ USD: 1 })
   const [ratesUpdatedAt, setRatesUpdatedAt] = useState<string | null>(null)
   const [rateError, setRateError] = useState('')
+
+  useEffect(() => {
+    const storedCurrency = readStoredCurrency()
+    if (storedCurrency) {
+      setCurrencyState(storedCurrency)
+      return
+    }
+
+    let active = true
+    void detectCurrencyFromLocation().then((resolvedCurrency) => {
+      if (!active) return
+      setCurrencyState(resolvedCurrency)
+    })
+
+    return () => {
+      active = false
+    }
+  }, [])
+
+  useEffect(() => {
+    writeStoredCurrency(currency)
+  }, [currency])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -72,6 +128,11 @@ export function CurrencyProvider({ children }: { children: ReactNode }) {
     return () => controller.abort()
   }, [])
 
+  const setCurrency = (nextCurrency: string) => {
+    const normalized = nextCurrency.trim().toUpperCase()
+    if (normalized && supportedCurrencies.has(normalized)) setCurrencyState(normalized)
+  }
+
   const value = useMemo<CurrencyContextValue>(() => {
     const rate = rates[currency]
     const ratesReady = currency === 'USD' || (Number.isFinite(rate) && rate > 0)
@@ -85,6 +146,7 @@ export function CurrencyProvider({ children }: { children: ReactNode }) {
       ratesReady,
       ratesUpdatedAt,
       rateError,
+      setCurrency,
       formatUsd: (amount, fractionDigits = 2) => new Intl.NumberFormat(locale, {
         style: 'currency',
         currency: activeCurrency,
