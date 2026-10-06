@@ -135,12 +135,16 @@ export function SellerVerificationPage({ session, emailConfirmed, onRequestSignI
       return
     }
     if (!consent || identityBusy) return
+    if (paystackProvider && missingPaystackFields.length) {
+      setError(`Complete these fields before verifying: ${missingPaystackFields.join(', ')}.`)
+      return
+    }
     setIdentityBusy(true)
     setError('')
     setNotice('')
     let reference = ''
     try {
-      if (manualPaystackFlow) {
+      if (paystackProvider) {
         const review = await submitManualSellerReview({
           legalName: paystackLegalName,
           idType: manualIdType,
@@ -160,22 +164,7 @@ export function SellerVerificationPage({ session, emailConfirmed, onRequestSignI
       reference = identitySession.reference
       if (identitySession.provider === 'paystack') {
         setManualPaystackFlow(true)
-        if (!paystackFormReady || !consent) {
-          setNotice('Complete the NIN or BVN and payout details below, then submit the form.')
-          setIdentityBusy(false)
-          return
-        }
-        const review = await submitManualSellerReview({
-          legalName: paystackLegalName,
-          idType: manualIdType,
-          idNumber: manualIdNumber.trim(),
-          bankCode,
-          accountNumber,
-          consent: true,
-        }, session)
-        setAccountNumber('')
-        setNotice(`${review.bankName} account ending ${review.accountLast4} and your identity were verified by Paystack.`)
-        await refreshVerification()
+        setNotice('Paystack verification is active. Complete the identity and bank details in the form, then submit again.')
         setIdentityBusy(false)
         return
       }
@@ -233,9 +222,12 @@ export function SellerVerificationPage({ session, emailConfirmed, onRequestSignI
   const paystackProvider = manualPaystackFlow || verificationProvider === 'paystack'
   const paystackLegalName = manualLegalName.trim() ||
     (typeof session.user.user_metadata?.full_name === 'string' ? session.user.user_metadata.full_name.trim() : '')
-  const paystackFormReady = manualIdNumber.length === 11 &&
-    accountNumber.length === 10 &&
-    Boolean(bankCode && paystackLegalName)
+  const missingPaystackFields = [
+    !paystackLegalName && 'legal name',
+    manualIdNumber.length !== 11 && `11-digit ${manualIdType}`,
+    !bankCode && 'bank',
+    accountNumber.length !== 10 && '10-digit bank account number',
+  ].filter((field): field is string => Boolean(field))
 
   return <section className="mx-auto w-full max-w-3xl pb-8">
     <header className="mb-6">
@@ -278,7 +270,8 @@ export function SellerVerificationPage({ session, emailConfirmed, onRequestSignI
                 </>}
                 {paystackProvider && <p className="text-xs leading-5 text-[#718078]">Enter your legal name, 11-digit NIN or BVN, bank, and 10-digit account number, then submit once to verify your identity and payout account.</p>}
                 <label className="flex items-start gap-2.5 text-xs leading-5 text-[#5e6f64]"><input type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)} className="mt-1 size-4 accent-[#315f49]" /><span>I consent to QuickResell processing my identity details for seller verification and matching them against the payout account holder name.</span></label>
-                <Button type="submit" disabled={!consent || identityBusy || loading || (paystackProvider && !paystackFormReady)} icon={identityBusy ? <LoaderCircle size={16} className="animate-spin" /> : <Camera size={16} />}>{identityBusy ? 'Verifying…' : paystackProvider ? 'Verify identity and payout account' : 'Start identity verification'}</Button>
+                {paystackProvider && missingPaystackFields.length > 0 && <p className="text-xs leading-5 text-[#8a642d]">Still needed: {missingPaystackFields.join(', ')}.</p>}
+                <Button type="submit" disabled={!consent || identityBusy || loading} icon={identityBusy ? <LoaderCircle size={16} className="animate-spin" /> : <Camera size={16} />}>{identityBusy ? 'Verifying…' : paystackProvider ? 'Verify identity and payout account' : 'Start identity verification'}</Button>
               </form>}
         {fullyVerified && verification?.bankName && <p className="mt-4 flex items-center gap-2 text-sm text-[#477358]"><BadgeCheck size={16} />{verification.bankName} · account ending {verification.bankAccountLast4}</p>}
       </section>
