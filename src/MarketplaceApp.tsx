@@ -15,13 +15,12 @@ import { getStoreListings, initializePayment, initializeWalletTopUp, verifyPayme
 import { getListingCategories, getMyListings, getWatchlist, toggleWatchlist } from './services/listingApi'
 import type { Auction, AuctionWatchlistRule, MarketplaceListing, NotificationItem, PurchaseOrder, Verdict } from './types'
 
-type View = 'feed' | 'shop' | 'cart' | 'dashboard' | 'watchlist' | 'orders' | 'wallet' | 'account'
+type View = 'feed' | 'shop' | 'cart' | 'dashboard' | 'watchlist' | 'orders' | 'wallet'
 type AuthMode = 'signin' | 'register'
 type ToastMessage = { message: string; kind: 'success' | 'error' }
 
 const AuctionRoom = lazy(() => import('./components/auction/AuctionRoom').then((module) => ({ default: module.AuctionRoom })))
 const AccountMenu = lazy(() => import('./components/account/AccountMenu').then((module) => ({ default: module.AccountMenu })))
-const AccountPage = lazy(() => import('./components/account/AccountMenu').then((module) => ({ default: module.AccountPage })))
 const BidAdvert = lazy(() => import('./components/auction/BidAdvert').then((module) => ({ default: module.BidAdvert })))
 const GlobalFeed = lazy(() => import('./components/feed/GlobalFeed').then((module) => ({ default: module.GlobalFeed })))
 const SellerDashboard = lazy(() => import('./components/dashboard/SellerStudio').then((module) => ({ default: module.SellerStudio })))
@@ -41,7 +40,6 @@ const viewPaths: Record<View, string> = {
   watchlist: '/watchlist',
   orders: '/orders',
   wallet: '/wallet',
-  account: '/account/profile',
 }
 
 function viewForPath(pathname: string): View {
@@ -50,7 +48,6 @@ function viewForPath(pathname: string): View {
   if (pathname === '/orders') return 'orders'
   if (pathname === '/watchlist') return 'watchlist'
   if (pathname === '/wallet') return 'wallet'
-  if (pathname.startsWith('/account/')) return 'account'
   if (pathname === '/seller' || pathname.startsWith('/seller/')) return 'dashboard'
   return 'feed'
 }
@@ -62,7 +59,30 @@ function returnPath(state: unknown): string {
 }
 
 function isKnownPath(pathname: string): boolean {
-  return ['/', '/shop', '/cart', '/orders', '/seller', '/seller/products/new', '/watchlist', '/wallet', '/auth/sign-in', '/auth/register', '/account/profile', '/account/preferences', '/account/settings'].includes(pathname) || /^\/auctions\/[^/]+$/.test(pathname)
+  return ['/', '/shop', '/cart', '/orders', '/seller', '/seller/products/new', '/watchlist', '/wallet', '/auth/sign-in', '/auth/register'].includes(pathname) || /^\/auctions\/[^/]+$/.test(pathname)
+}
+
+function mergeAuctionPatch(auction: Auction, patch: Partial<Auction>): Auction {
+  const incomingBidIsOlder = patch.currentHighestBid !== undefined && patch.currentHighestBid < auction.currentHighestBid
+  const status = auction.status !== 'ACTIVE' && patch.status === 'ACTIVE'
+    ? auction.status
+    : patch.status ?? auction.status
+  const incomingEndIsOlder = auction.status === 'ACTIVE' && status === 'ACTIVE' && patch.endsAt !== undefined &&
+    new Date(patch.endsAt).getTime() < new Date(auction.endsAt).getTime()
+
+  return {
+    ...auction,
+    ...patch,
+    currentHighestBid: Math.max(auction.currentHighestBid, patch.currentHighestBid ?? auction.currentHighestBid),
+    highestBidderId: incomingBidIsOlder ? auction.highestBidderId : patch.highestBidderId ?? auction.highestBidderId,
+    endsAt: incomingEndIsOlder ? auction.endsAt : patch.endsAt ?? auction.endsAt,
+    bids: patch.bids
+      ? [...new Map([...auction.bids, ...patch.bids].map((bid) => [bid.id, bid])).values()]
+        .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime() || right.id.localeCompare(left.id))
+        .slice(0, 50)
+      : auction.bids,
+    status,
+  }
 }
 
 export default function MarketplaceApp() {
@@ -162,7 +182,7 @@ export default function MarketplaceApp() {
   }, [location.pathname, navigate])
 
   useEffect(() => {
-    if (authLoading || session || (view !== 'cart' && view !== 'dashboard' && view !== 'account')) return
+    if (authLoading || session || (view !== 'cart' && view !== 'dashboard')) return
     setAuthMode('signin', location.pathname)
   }, [authLoading, location.pathname, session, view])
 
@@ -346,11 +366,10 @@ export default function MarketplaceApp() {
       if (!rule) return current
       const updatedRule: AuctionWatchlistRule = {
         ...rule,
-        auction: {
-          ...rule.auction,
+        auction: mergeAuctionPatch(rule.auction, {
           ...patch,
           ...(updatedBid !== undefined ? { currentHighestBid: updatedBid } : {}),
-        },
+        }),
       }
       const remaining = current.filter((item) => item.auctionRoomId !== roomId)
       return bidChanged ? [updatedRule, ...remaining] : [...remaining.slice(0, index), updatedRule, ...remaining.slice(index)]
@@ -363,8 +382,8 @@ export default function MarketplaceApp() {
   }
 
   const updateRoom = (roomId: string, patch: Partial<Auction>) => {
-    setAuctions((items) => items.map((item) => item.id === roomId ? { ...item, ...patch } : item))
-    setSellerAuctions((items) => items.map((item) => item.id === roomId ? { ...item, ...patch } : item))
+    setAuctions((items) => items.map((item) => item.id === roomId ? mergeAuctionPatch(item, patch) : item))
+    setSellerAuctions((items) => items.map((item) => item.id === roomId ? mergeAuctionPatch(item, patch) : item))
     updateWatchedAuction(roomId, patch)
   }
 
@@ -377,10 +396,10 @@ export default function MarketplaceApp() {
         highestBidderId: bid.bidder.id,
       })
       setAuctions((items) => items.map((item) => item.id === roomId
-        ? { ...item, currentHighestBid: Math.max(item.currentHighestBid, bid.amount), highestBidderId: bid.bidder.id, bids: [bid, ...item.bids.filter((existing) => existing.id !== bid.id)] }
+        ? mergeAuctionPatch(item, { currentHighestBid: bid.amount, highestBidderId: bid.bidder.id, bids: [bid, ...item.bids.filter((existing) => existing.id !== bid.id)] })
         : item))
       setSellerAuctions((items) => items.map((item) => item.id === roomId
-        ? { ...item, currentHighestBid: Math.max(item.currentHighestBid, bid.amount), highestBidderId: bid.bidder.id, bids: [bid, ...item.bids.filter((existing) => existing.id !== bid.id)] }
+        ? mergeAuctionPatch(item, { currentHighestBid: bid.amount, highestBidderId: bid.bidder.id, bids: [bid, ...item.bids.filter((existing) => existing.id !== bid.id)] })
         : item))
     },
   })
@@ -392,10 +411,8 @@ export default function MarketplaceApp() {
     }
     if (!emailConfirmed) throw new Error('Confirm your email before placing bids.')
     const result = await placeBid(room.id, amount, session)
-    updateRoom(room.id, { ...result.auction, bids: [result.bid, ...room.bids.filter((bid) => bid.id !== result.bid.id)] })
+    updateRoom(room.id, result.auction)
     await userCart.refresh()
-    setSelectedId(null)
-    setView('cart')
   }
 
   const handleExpire = async (room: Auction) => {
@@ -824,7 +841,7 @@ export default function MarketplaceApp() {
             </div>
           </div>}
         </div>
-        {session ? <Suspense fallback={<span className="ml-1 size-10 animate-pulse rounded-full bg-[#e9f0e8]" />}><AccountMenu session={session} onSignOut={handleSignOut} /></Suspense> : <Button variant="secondary" onClick={() => setAuthMode('signin')} className="ml-1 min-h-9 rounded-lg px-3 text-xs">Sign in</Button>}
+        {session ? <Suspense fallback={<span className="ml-1 size-10 animate-pulse rounded-full bg-[#e9f0e8]" />}><AccountMenu session={session} onSignOut={handleSignOut} onDeleted={() => { navigate('/', { replace: true }); showToast('Your account and associated QuickResell data have been deleted.') }} /></Suspense> : <Button variant="secondary" onClick={() => setAuthMode('signin')} className="ml-1 min-h-9 rounded-lg px-3 text-xs">Sign in</Button>}
       </div>
     </header>
     {mobileMenuOpen && <div className="fixed inset-0 z-40 md:hidden">
@@ -842,7 +859,7 @@ export default function MarketplaceApp() {
 
       {!selectedAuction && view !== 'watchlist' && <button type="button" aria-label={unreadWatchlistBidCount > 0 ? `Open auction watchlist, ${unreadWatchlistBidCount} new bid updates` : 'Open auction watchlist'} title="Open auction watchlist" onClick={openWatchlist} className="fixed bottom-[154px] right-4 z-40 inline-flex h-12 w-12 transform items-center justify-center rounded-full border border-[#cfe4d5] bg-[#dfeee2] text-[#244737] shadow-[0_12px_28px_rgba(35,56,43,.14)] backdrop-blur-sm transition-transform duration-150 hover:bg-[#d2ebd8] active:translate-y-[1px] lg:hidden"><Bookmark size={17} />{unreadWatchlistBidCount > 0 ? <span className="absolute -right-1 -top-1"><BellDot size={16} className="text-[#d94b3d]" /></span> : activeWatchlistCount > 0 && <span className="absolute -right-1 -top-1 grid min-h-4 min-w-4 place-items-center rounded-full bg-[#d4f06b] px-1 text-[9px] font-bold text-[#213b30]">{Math.min(activeWatchlistCount, 9)}</span>}</button>}
       <NavigationAssistant auctions={auctions} listings={listings} dataReady={!dataLoading && !dataError} onNavigate={(destination) => { if (destination === 'dashboard') { openSellerStudio(); return } setSelectedId(null); setView(destination) }} onOpenAuction={(auction) => { setSelectedId(auction.id); setViewState('feed') }} onOpenListing={handleScoutOpenListing} onPrepareRule={prepareAuctionRule} currentUserId={currentUserId} auctionWatchlistRules={auctionWatchlistRules} onFeedback={(feedback) => void handleScoutFeedback(feedback)} onSupportRequest={handleScoutSupportRequest} onAskModel={askScout} signedIn={Boolean(session)} emailConfirmed={emailConfirmed} onSignIn={() => setAuthMode('signin')} />
-      {view === 'account' ? <main className="min-w-0 px-4 pb-24 pt-6 sm:px-6 lg:px-7 lg:pb-8 lg:pt-7">{authLoading ? <div className="py-12 text-center text-sm text-[#849189]">Loading account…</div> : session ? <AccountPage session={session} onDeleted={() => { navigate('/', { replace: true }); showToast('Your account and associated QuickResell data have been deleted.') }} /> : null}</main> : view === 'watchlist' ? <main className="min-w-0 px-4 pb-24 pt-6 sm:px-6 lg:px-7 lg:pb-8 lg:pt-7"><AuctionWatchlistPage rules={auctionWatchlistRules} recentBidAuctionIds={recentWatchlistBidIds} loading={watchlistLoading} error={watchlistError} savingId={watchlistSavingId} onSave={handleSaveAuctionRule} onRemove={handleRemoveAuctionRule} onOpenAuction={(auction) => setSelectedId(auction.id)} onRequestSignIn={() => setAuthMode('signin')} onBrowseAuctions={() => setView('feed')} signedIn={Boolean(session)} emailConfirmed={emailConfirmed} /></main> : view === 'wallet' ? <main className="min-w-0 px-4 pb-24 pt-6 sm:px-6 lg:px-7 lg:pb-8 lg:pt-7"><WalletPage key={`${currentUserId}:${emailConfirmed}`} session={session} emailConfirmed={emailConfirmed} onRequestSignIn={() => setAuthMode('signin', viewPaths.wallet)} onAddFunds={handleAddWalletFunds} /></main> : <main className="min-w-0 px-4 pb-24 pt-6 sm:px-6 lg:px-7 lg:pb-8 lg:pt-7">
+      {view === 'watchlist' ? <main className="min-w-0 px-4 pb-24 pt-6 sm:px-6 lg:px-7 lg:pb-8 lg:pt-7"><AuctionWatchlistPage rules={auctionWatchlistRules} recentBidAuctionIds={recentWatchlistBidIds} loading={watchlistLoading} error={watchlistError} savingId={watchlistSavingId} onSave={handleSaveAuctionRule} onRemove={handleRemoveAuctionRule} onOpenAuction={(auction) => setSelectedId(auction.id)} onRequestSignIn={() => setAuthMode('signin')} onBrowseAuctions={() => setView('feed')} signedIn={Boolean(session)} emailConfirmed={emailConfirmed} /></main> : view === 'wallet' ? <main className="min-w-0 px-4 pb-24 pt-6 sm:px-6 lg:px-7 lg:pb-8 lg:pt-7"><WalletPage key={`${currentUserId}:${emailConfirmed}`} session={session} emailConfirmed={emailConfirmed} onRequestSignIn={() => setAuthMode('signin', viewPaths.wallet)} onAddFunds={handleAddWalletFunds} /></main> : <main className="min-w-0 px-4 pb-24 pt-6 sm:px-6 lg:px-7 lg:pb-8 lg:pt-7">
         {session && !emailConfirmed && <div role="status" className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#ead9b0] bg-[#fff9e9] px-4 py-3 text-sm text-[#765b22]"><span>Confirm your email to bid, sell, message sellers, or place orders.</span><Button variant="secondary" onClick={() => void resendConfirmation()} className="min-h-8 rounded-lg px-3 text-xs">Resend confirmation</Button></div>}
         {authLoading ? <div className="grid min-h-72 place-items-center rounded-xl border border-[#e4eae5] bg-white text-sm text-[#849189]">Connecting to your account…</div> : dataError ? <div role="alert" className="mx-auto mt-12 max-w-lg rounded-xl border border-[#f0d7d2] bg-white p-6 text-center"><h1 className="font-display text-xl font-semibold text-[#263b33]">Marketplace data unavailable</h1><p className="mt-2 break-words text-sm text-[#7a8781]">{dataError}</p><Button variant="secondary" onClick={() => { setDataError(''); setLoadedUserId(null); setDataRetry((attempt) => attempt + 1) }} className="mt-4">Retry</Button></div> : dataLoading ? <div className="grid min-h-72 place-items-center rounded-xl border border-[#e4eae5] bg-white text-sm text-[#849189]">Loading marketplace data…</div> : selectedAuction ? <AuctionRoom auction={selectedAuction} userId={currentUserId} session={session} emailConfirmed={emailConfirmed} onRequestSignIn={() => setAuthMode('signin', location.pathname)} onBack={() => setSelectedId(null)} onBid={(amount) => handleBid(selectedAuction, amount)} onExpire={() => handleExpire(selectedAuction)} onNotice={showToast} onRoomUpdate={(patch) => updateRoom(selectedAuction.id, patch)} onVerdict={(decision) => handleVerdict(selectedAuction, decision)} /> : view === 'dashboard' ? <SellerDashboard key={currentUserId} auctions={sellerRows} userId={currentUserId} trustScore={trustScore} completedAuctions={completedAuctions} session={session} emailConfirmed={emailConfirmed} ownListings={ownListings} onRequestSignIn={() => setAuthMode('signin')} onListingCreated={handleListingCreated} onListingUpdated={handleListingUpdated} onAuctionCreated={handleAuctionCreated} onVerdict={handleVerdict} onNotice={showToast} /> : view === 'shop' ? <StorePage listings={listings} categories={categories} error={shopError} cartHas={(postId) => userCart.items.some((item) => item.postId === postId)} watchlistIds={watchlistIds} onToggleSaved={(postId) => void handleToggleSaved(postId)} onAdd={(listing) => void handleAddToCart(listing)} onOpenCart={() => setView('cart')} session={session} emailConfirmed={emailConfirmed} onRequestSignIn={() => setAuthMode('signin', '/shop')} /> : view === 'cart' ? <ShoppingCartPage items={userCart.items} loading={userCart.loading} error={userCart.error} onShop={() => setView('shop')} onSetQuantity={userCart.setQuantity} onRemove={userCart.remove} onCheckout={handlePlaceOrder} onRefresh={userCart.refresh} /> : view === 'orders' ? <PurchaseHistoryPage key={currentUserId} session={session} emailConfirmed={emailConfirmed} onRequestSignIn={() => setAuthMode('signin', '/orders')} /> : <GlobalFeed auctions={auctions} categories={categories} watchlistIds={auctionWatchlistRules.map((rule) => rule.auctionRoomId)} savingWatchlistId={watchlistSavingId} watchlistLoading={watchlistLoading} currentUserId={currentUserId} onToggleWatchlist={(auction) => void handleToggleAuctionWatchlist(auction)} onOpen={(auction) => setSelectedId(auction.id)} session={session} emailConfirmed={emailConfirmed} onRequestSignIn={() => setAuthMode('signin', location.pathname)} />}
       </main>}

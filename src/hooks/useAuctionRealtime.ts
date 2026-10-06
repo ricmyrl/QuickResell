@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import type { Auction, Bid } from '../types'
+import { getAuctionRoom } from '../services/api'
 import { supabase } from '../lib/supabase'
 
 type RoomPatch = Partial<Pick<Auction, 'currentHighestBid' | 'endsAt' | 'status' | 'highestBidderId'>> & { id?: string }
@@ -15,8 +16,24 @@ export function useAuctionRealtime(roomId: string, onAuctionUpdate: (update: Roo
 
   useEffect(() => {
     const client = supabase
-    if (!client || !roomId) return
-    const channel = client.channel(`auction:${roomId}`)
+    if (!roomId) return
+    let cancelled = false
+    let refreshing = false
+    const refreshRoom = async () => {
+      if (refreshing) return
+      refreshing = true
+      try {
+        const room = await getAuctionRoom(roomId)
+        if (!cancelled) roomUpdateRef.current?.(room)
+      } catch {
+        // Keep the last realtime state and retry on the next refresh.
+      } finally {
+        refreshing = false
+      }
+    }
+    void refreshRoom()
+    const refreshTimer = window.setInterval(() => void refreshRoom(), 5_000)
+    const channel = client?.channel(`auction:${roomId}`)
       .on('broadcast', { event: 'new_bid' }, ({ payload }) => {
         const bid = payload as Bid
         if (bid?.id && bid.amount && bidRef.current) bidRef.current(bid)
@@ -37,6 +54,10 @@ export function useAuctionRealtime(roomId: string, onAuctionUpdate: (update: Roo
         }
       })
       .subscribe()
-    return () => { void client.removeChannel(channel) }
+    return () => {
+      cancelled = true
+      window.clearInterval(refreshTimer)
+      if (channel) void client?.removeChannel(channel)
+    }
   }, [roomId])
 }

@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { createPortal } from 'react-dom'
+import { AnimatePresence, motion } from 'framer-motion'
 import type { Session } from '@supabase/supabase-js'
-import { AlertTriangle, ArrowLeft, Check, ChevronDown, ImagePlus, KeyRound, LoaderCircle, LogOut, Mail, MapPin, ShieldCheck, Trash2, UserRound } from 'lucide-react'
+import { AlertTriangle, Check, ChevronDown, ImagePlus, KeyRound, LoaderCircle, LogOut, Mail, MapPin, ShieldCheck, Trash2, UserRound, X } from 'lucide-react'
 import { deleteAccount, getAccountProfile, updateAccountPreferences, type AccountProfile } from '../../services/api'
 import { supabase } from '../../lib/supabase'
-import { Button } from '../common/Button'
+import { Button, IconButton } from '../common/Button'
 
 type AccountSection = 'profile' | 'preferences' | 'settings'
 
@@ -14,21 +15,13 @@ const sections: Array<{ id: AccountSection; label: string; icon: typeof UserRoun
   { id: 'settings', label: 'Account settings', icon: ShieldCheck },
 ]
 
-const accountPaths: Record<AccountSection, string> = {
-  profile: '/account/profile',
-  preferences: '/account/preferences',
-  settings: '/account/settings',
-}
-
-function AccountPage({ session, onDeleted }: {
+function AccountPage({ session, initialSection, onClose, onDeleted }: {
   session: Session
+  initialSection: AccountSection
+  onClose: () => void
   onDeleted: () => void
 }) {
-  const location = useLocation()
-  const navigate = useNavigate()
-  const section: AccountSection = location.pathname === accountPaths.preferences
-    ? 'preferences'
-    : location.pathname === accountPaths.settings ? 'settings' : 'profile'
+  const [section, setSection] = useState(initialSection)
   const [profile, setProfile] = useState<AccountProfile>({
     displayName: typeof session.user.user_metadata.full_name === 'string'
       ? session.user.user_metadata.full_name
@@ -69,6 +62,17 @@ function AccountPage({ session, onDeleted }: {
   useEffect(() => () => {
     if (avatarPreviewUrl) URL.revokeObjectURL(avatarPreviewUrl)
   }, [avatarPreviewUrl])
+
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === 'Escape' && !busy) onClose() }
+    window.addEventListener('keydown', closeOnEscape)
+    return () => {
+      document.body.style.overflow = previousOverflow
+      window.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [busy, onClose])
 
   const saveProfile = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -194,18 +198,16 @@ function AccountPage({ session, onDeleted }: {
     }
   }
 
-  return <section aria-labelledby="account-page-title" className="mx-auto w-full max-w-5xl py-5 sm:py-8">
-      <button type="button" onClick={() => navigate('/')} className="mb-5 inline-flex min-h-9 items-center gap-2 text-sm font-semibold text-[#66766e] transition hover:text-[#263b33]"><ArrowLeft size={16} />Back to marketplace</button>
-      <div className="overflow-hidden rounded-2xl border border-[#e4eae5] bg-white shadow-sm">
-      <header className="border-b border-[#edf1ed] px-5 py-5 sm:px-7">
-        <p className="text-[10px] font-bold uppercase tracking-[.14em] text-[#6d8a76]">Your account</p><h1 id="account-page-title" className="font-display mt-1 text-2xl font-semibold text-[#233b2f]">{section === 'profile' ? 'Edit profile' : section === 'preferences' ? 'Preferences' : 'Account settings'}</h1><p className="mt-1 text-xs text-[#839087]">{profile.email ?? session.user.email}</p>
+  return createPortal(<AnimatePresence initial={false}>{<motion.div className="fixed inset-0 z-[90] flex items-end justify-center bg-[#101a17]/55 sm:items-center sm:p-4" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose() }}>
+    <motion.section role="dialog" aria-modal="true" aria-labelledby="account-page-title" className="flex max-h-[90dvh] w-full flex-col overflow-hidden rounded-t-[22px] bg-white shadow-[0_30px_100px_rgba(10,26,20,.25)] sm:max-h-[min(760px,88dvh)] sm:max-w-[600px] sm:rounded-[22px]" initial={{ y: '12%', opacity: .8 }} animate={{ y: 0, opacity: 1 }} exit={{ y: '12%', opacity: .8 }} transition={{ type: 'spring', stiffness: 320, damping: 34 }}>
+      <header className="flex items-center justify-between border-b border-[#edf1ed] px-5 py-4 sm:px-6">
+        <div className="min-w-0"><p className="text-[10px] font-bold uppercase tracking-[.14em] text-[#6d8a76]">Your account</p><h2 id="account-page-title" className="font-display mt-1 text-lg font-semibold text-[#233b2f]">{section === 'profile' ? 'Edit profile' : section === 'preferences' ? 'Preferences' : 'Account settings'}</h2><p className="mt-0.5 truncate text-xs text-[#839087]">{profile.email ?? session.user.email}</p></div>
+        <IconButton label="Close account settings" onClick={onClose}><X size={18} /></IconButton>
       </header>
-      <div className="grid min-h-0 md:grid-cols-[210px_minmax(0,1fr)]">
-        <nav aria-label="Account settings" className="flex gap-1 overflow-x-auto border-b border-[#edf1ed] bg-[#fafbfa] p-3 md:flex-col md:border-b-0 md:border-r md:p-4">
-          {sections.map(({ id, label, icon: Icon }) => <button key={id} type="button" onClick={() => { navigate(accountPaths[id]); setError(''); setNotice('') }} aria-current={section === id ? 'page' : undefined} className={`flex shrink-0 items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-xs font-semibold transition ${section === id ? 'bg-[#eaf2eb] text-[#315c45]' : 'text-[#78867e] hover:bg-white hover:text-[#293c32]'}`}><Icon size={16} />{label}</button>)}
-        </nav>
-
-        <div className="min-w-0 p-5 sm:p-7">
+      <nav aria-label="Account settings" className="flex gap-1 overflow-x-auto border-b border-[#edf1ed] bg-[#fafbfa] p-2.5 sm:px-4">
+        {sections.map(({ id, label, icon: Icon }) => <button key={id} type="button" onClick={() => { setSection(id); setError(''); setNotice('') }} aria-current={section === id ? 'page' : undefined} className={`inline-flex min-h-9 shrink-0 items-center gap-2 rounded-lg px-3 text-xs font-semibold transition ${section === id ? 'bg-[#eaf2eb] text-[#315c45]' : 'text-[#78867e] hover:bg-white hover:text-[#293c32]'}`}><Icon size={15} />{label}</button>)}
+      </nav>
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 pb-[max(16px,env(safe-area-inset-bottom))] sm:px-6 sm:py-5">
           {error && <div role="alert" className="mb-4 rounded-xl border border-[#f0d7d2] bg-[#fff5f2] px-3.5 py-3 text-xs leading-5 text-[#a34237]">{error}</div>}
           {notice && <div role="status" className="mb-4 flex items-start gap-2 rounded-xl border border-[#dceadf] bg-[#f2f8f2] px-3.5 py-3 text-xs leading-5 text-[#41694d]"><Check size={15} className="mt-0.5 shrink-0" />{notice}</div>}
 
@@ -251,21 +253,21 @@ function AccountPage({ session, onDeleted }: {
               <Button type="submit" disabled={busy || !profile.email || deleteEmail.trim().toLowerCase() !== profile.email.toLowerCase()} className="w-full justify-center bg-[#a33d32] text-white hover:bg-[#8f332a] disabled:opacity-50">{busy ? <><LoaderCircle size={15} className="animate-spin" />Deleting account and data…</> : <><Trash2 size={15} />Permanently delete account and data</>}</Button>
             </form>
           </div>}
-        </div>
       </div>
-      </div>
-    </section>
+    </motion.section>
+  </motion.div>}</AnimatePresence>, document.body)
 }
 
-export function AccountMenu({ session, onSignOut }: {
+export function AccountMenu({ session, onSignOut, onDeleted }: {
   session: Session
   onSignOut: () => Promise<void>
+  onDeleted: () => void
 }) {
   const [open, setOpen] = useState(false)
+  const [dialogSection, setDialogSection] = useState<AccountSection | null>(null)
   const [logoutBusy, setLogoutBusy] = useState(false)
   const [error, setError] = useState('')
   const rootRef = useRef<HTMLDivElement>(null)
-  const navigate = useNavigate()
   const displayName = typeof session.user.user_metadata.full_name === 'string'
     ? session.user.user_metadata.full_name
     : typeof session.user.user_metadata.name === 'string' ? session.user.user_metadata.name : session.user.email ?? 'Account'
@@ -306,12 +308,11 @@ export function AccountMenu({ session, onSignOut }: {
       </button>
       {open && <div id="account-actions" aria-label="Account actions" className="absolute right-0 top-12 z-[60] w-[min(300px,calc(100vw-24px))] overflow-hidden rounded-2xl border border-[#e3eae4] bg-white p-2 shadow-[0_18px_55px_rgba(31,54,43,.18)]">
         <div className="flex items-center gap-3 border-b border-[#edf1ed] px-3 py-3"><span className="grid size-10 shrink-0 place-items-center overflow-hidden rounded-full bg-[#e9f0e8] text-sm font-bold text-[#456555]">{typeof session.user.user_metadata.avatar_url === 'string' ? <img src={session.user.user_metadata.avatar_url} alt="" className="size-full object-cover" loading="lazy" decoding="async" /> : initial}</span><span className="min-w-0"><span className="block truncate text-sm font-semibold text-[#2a4035]">{displayName}</span><span className="mt-0.5 block truncate text-[11px] text-[#829087]">{session.user.email}</span></span></div>
-        <div className="py-1.5">{sections.map(({ id, label, icon: Icon }) => <button key={id} type="button" onClick={() => { navigate(accountPaths[id]); setOpen(false) }} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-xs font-semibold text-[#53675a] transition hover:bg-[#f3f7f3]"><Icon size={16} />{id === 'profile' ? 'Edit profile' : label}</button>)}</div>
+        <div className="py-1.5">{sections.map(({ id, label, icon: Icon }) => <button key={id} type="button" onClick={() => { setDialogSection(id); setOpen(false) }} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-xs font-semibold text-[#53675a] transition hover:bg-[#f3f7f3]"><Icon size={16} />{id === 'profile' ? 'Edit profile' : label}</button>)}</div>
         {error && <p role="alert" className="mx-2 mb-2 rounded-lg bg-[#fff5f2] px-2.5 py-2 text-[11px] leading-4 text-[#a34237]">{error}</p>}
         <button type="button" disabled={logoutBusy} onClick={() => void logout()} className="flex w-full items-center gap-3 rounded-xl border-t border-[#edf1ed] px-3 py-3 text-left text-xs font-semibold text-[#8d4c43] transition hover:bg-[#fff6f4] disabled:opacity-50"><LogOut size={16} />{logoutBusy ? 'Signing out…' : 'Sign out'}</button>
       </div>}
     </div>
+    {dialogSection && <AccountPage session={session} initialSection={dialogSection} onClose={() => setDialogSection(null)} onDeleted={() => { setDialogSection(null); onDeleted() }} />}
   </>
 }
-
-export { AccountPage }
