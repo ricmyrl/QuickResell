@@ -25,6 +25,111 @@ const statusLabels: Record<SellerCheckStatus, string> = {
   REVIEW_REQUIRED: 'Needs review',
 }
 
+const bankPrefixMap: Record<string, string[]> = {
+  '011': ['011'],
+  '044': ['044'],
+  '058': ['058'],
+  '070': ['070'],
+  '221': ['221'],
+  '232': ['232'],
+  '302': ['302'],
+  '033': ['033'],
+  '214': ['214'],
+  '215': ['215'],
+  '081': ['081'],
+  '090': ['090'],
+  '076': ['076'],
+  '901': ['901'],
+  '035': ['035'],
+  '023': ['023'],
+  '057': ['057'],
+  '084': ['084'],
+  '063': ['063'],
+  '032': ['032'],
+  '050': ['050'],
+  '060': ['060'],
+  '083': ['083'],
+  '082': ['082'],
+  '026': ['026'],
+  '072': ['072'],
+  '122': ['122'],
+  '100': ['100'],
+  '103': ['103'],
+  '201': ['201'],
+  '309': ['309'],
+  '311': ['311'],
+  '320': ['320'],
+  '325': ['325'],
+  '328': ['328'],
+  '329': ['329'],
+  '330': ['330'],
+  '332': ['332'],
+  '340': ['340'],
+  '401': ['401'],
+  '403': ['403'],
+  '404': ['404'],
+  '406': ['406'],
+  '407': ['407'],
+  '409': ['409'],
+  '412': ['412'],
+  '413': ['413'],
+  '414': ['414'],
+  '415': ['415'],
+  '416': ['416'],
+  '417': ['417'],
+  '418': ['418'],
+  '419': ['419'],
+  '420': ['420'],
+  '421': ['421'],
+  '422': ['422'],
+  '423': ['423'],
+  '424': ['424'],
+  '425': ['425'],
+  '426': ['426'],
+  '427': ['427'],
+  '428': ['428'],
+  '429': ['429'],
+  '430': ['430'],
+  '431': ['431'],
+  '432': ['432'],
+  '433': ['433'],
+  '434': ['434'],
+  '435': ['435'],
+  '436': ['436'],
+  '437': ['437'],
+  '438': ['438'],
+  '439': ['439'],
+  '440': ['440'],
+  '441': ['441'],
+  '442': ['442'],
+  '443': ['443'],
+  '444': ['444'],
+  '445': ['445'],
+  '446': ['446'],
+  '447': ['447'],
+  '448': ['448'],
+  '449': ['449'],
+  '450': ['450'],
+  '451': ['451'],
+  '452': ['452'],
+  '453': ['453'],
+  '454': ['454'],
+  '455': ['455'],
+  '456': ['456'],
+  '457': ['457'],
+  '458': ['458'],
+  '459': ['459'],
+  '460': ['460'],
+  '461': ['461'],
+  '462': ['462'],
+  '463': ['463'],
+  '464': ['464'],
+  '465': ['465'],
+  '466': ['466'],
+  '467': ['467'],
+  '468': ['468'],
+}
+
 function VerificationState({ status }: { status: SellerCheckStatus }) {
   const style = status === 'VERIFIED'
     ? 'bg-[#eaf5eb] text-[#42724e]'
@@ -69,11 +174,15 @@ export function SellerVerificationPage({ session, emailConfirmed, onRequestSignI
   const [consent, setConsent] = useState(false)
   const [manualLegalName, setManualLegalName] = useState('')
   const [manualIdType, setManualIdType] = useState<'NIN' | 'BVN' | 'Passport'>('NIN')
+  const [manualIdNumber, setManualIdNumber] = useState('')
+  const [manualPaystackFlow, setManualPaystackFlow] = useState(false)
   const [loading, setLoading] = useState(true)
   const [identityBusy, setIdentityBusy] = useState(false)
   const [payoutBusy, setPayoutBusy] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const [detectedBankName, setDetectedBankName] = useState('')
+  const [bankSupportWarning, setBankSupportWarning] = useState('')
 
   const refreshVerification = useCallback(async () => {
     if (!session || !emailConfirmed) return
@@ -138,11 +247,23 @@ export function SellerVerificationPage({ session, emailConfirmed, onRequestSignI
         const review = await submitManualSellerReview({
           legalName: manualLegalName.trim() || session.user.user_metadata?.full_name || 'Seller account holder',
           idType: manualIdType,
+          idNumber: manualIdNumber.trim(),
+          bankCode,
+          accountNumber,
           consent: true,
         }, session)
         setAccountNumber('')
         setNotice(`${review.bankName} account ending ${review.accountLast4} and your identity were verified by Paystack.`)
         await refreshVerification()
+        setIdentityBusy(false)
+        return
+      }
+
+      const identitySession = await startSellerIdentityVerification(session)
+      reference = identitySession.reference
+      if (identitySession.provider === 'manual_review') {
+        setManualPaystackFlow(true)
+        setNotice('Enter your NIN or BVN and payout bank account to complete Paystack validation.')
         setIdentityBusy(false)
         return
       }
@@ -173,8 +294,6 @@ export function SellerVerificationPage({ session, emailConfirmed, onRequestSignI
           if (!jobId || !smileUserId) {
             setError('Smile ID accepted the check but returned no verification reference. Contact support.')
             setIdentityBusy(false)
-  const [manualIdNumber, setManualIdNumber] = useState('')
-  const [manualPaystackFlow, setManualPaystackFlow] = useState(false)
             return
           }
           void recordSmileVerificationSubmission({ reference, jobId, smileUserId }, session).then(async () => {
@@ -191,6 +310,32 @@ export function SellerVerificationPage({ session, emailConfirmed, onRequestSignI
       setIdentityBusy(false)
     }
   }
+
+  const autoSelectBankFromAccountNumber = useCallback((value: string) => {
+    if (!banks.length || bankCode || value.length < 6) {
+      if (!value) {
+        setDetectedBankName('')
+        setBankSupportWarning('')
+      }
+      return
+    }
+
+    const normalized = value.replace(/\D/g, '').slice(0, 10)
+    const candidate = banks.find((item) => {
+      const prefixes = bankPrefixMap[item.code] ?? []
+      return prefixes.some((prefix) => normalized.startsWith(prefix))
+    })
+
+    if (candidate) {
+      setBankCode(candidate.code)
+      setDetectedBankName(candidate.name)
+      setBankSupportWarning('')
+      return
+    }
+
+    setDetectedBankName('')
+    setBankSupportWarning(normalized.length >= 6 ? 'This account prefix is not in Paystack\'s supported Nigerian bank list.' : '')
+  }, [bankCode, banks])
 
   const verifyPayout = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -246,12 +391,17 @@ export function SellerVerificationPage({ session, emailConfirmed, onRequestSignI
                   <label className="block text-xs font-semibold text-[#52645a]"><span className="mb-1.5 block">ID type</span><select value={manualIdType} onChange={(event) => setManualIdType(event.target.value as 'NIN' | 'BVN' | 'Passport')} className="h-11 w-full rounded-xl border border-[#dfe7e1] bg-white px-3 text-sm text-[#273a30] outline-none focus:border-[#86a995]">
                     <option value="NIN">NIN</option>
                     <option value="BVN">BVN</option>
-          idNumber: manualIdNumber.trim(),
-          bankCode,
-          accountNumber,
                     <option value="Passport">Passport</option>
                   </select></label>
                 </div>
+                <label className="block text-xs font-semibold text-[#52645a]"><span className="mb-1.5 block">{manualIdType === 'Passport' ? 'Passport number' : `${manualIdType} number`}</span><input type="text" inputMode="numeric" value={manualIdNumber} onChange={(event) => setManualIdNumber(manualIdType === 'Passport' ? event.target.value : event.target.value.replace(/\D/g, '').slice(0, 11))} placeholder={manualIdType === 'Passport' ? 'Passport number' : '11-digit number'} className="h-11 w-full rounded-xl border border-[#dfe7e1] bg-white px-3 text-sm text-[#273a30] outline-none focus:border-[#86a995]" /></label>
+                {manualPaystackFlow && <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="block text-xs font-semibold text-[#52645a]"><span className="mb-1.5 block">Payout bank</span><select value={bankCode} onChange={(event) => setBankCode(event.target.value)} disabled={banks.length === 0 || identityBusy} required className="h-11 w-full rounded-xl border border-[#dfe7e1] bg-white px-3 text-sm text-[#273a30] outline-none focus:border-[#86a995] disabled:bg-[#f4f6f4]"><option value="">{banks.length ? 'Choose your bank' : 'Loading banks…'}</option>{banks.map((bank) => <option key={bank.code} value={bank.code}>{bank.name}</option>)}</select></label>
+                  <label className="block text-xs font-semibold text-[#52645a]"><span className="mb-1.5 block">Payout account number</span><input type="text" inputMode="numeric" autoComplete="off" minLength={10} maxLength={10} pattern="[0-9]{10}" value={accountNumber} onChange={(event) => {
+                    const nextValue = event.target.value.replace(/\D/g, '').slice(0, 10)
+                    setAccountNumber(nextValue)
+                  }} disabled={identityBusy} required placeholder="10 digits" className="h-11 w-full rounded-xl border border-[#dfe7e1] bg-white px-3 text-sm text-[#273a30] outline-none focus:border-[#86a995] disabled:bg-[#f4f6f4]" /></label>
+                </div>}
                 <label className="flex items-start gap-2.5 text-xs leading-5 text-[#5e6f64]"><input type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)} className="mt-1 size-4 accent-[#315f49]" /><span>I consent to QuickResell processing my identity details for seller verification and matching them against the payout account holder name.</span></label>
                 <Button type="button" disabled={!consent || identityBusy || loading || (manualPaystackFlow && (manualIdType === 'Passport' || manualIdNumber.length !== 11 || accountNumber.length !== 10 || !bankCode || !manualLegalName.trim()))} onClick={() => void startIdentityCheck()} icon={identityBusy ? <LoaderCircle size={16} className="animate-spin" /> : <Camera size={16} />}>{identityBusy ? 'Validating…' : manualPaystackFlow ? 'Verify identity and payout account' : identityStatus === 'REJECTED' ? 'Retry identity check' : 'Start identity check'}</Button>
               </div>}
@@ -259,21 +409,24 @@ export function SellerVerificationPage({ session, emailConfirmed, onRequestSignI
 
       <section className={`rounded-[16px] border border-[#e2e9e3] bg-white p-5 sm:p-6 ${identityStatus !== 'VERIFIED' ? 'opacity-65' : ''}`}>
         <div className="flex flex-wrap items-center justify-between gap-3"><div className="flex items-center gap-3"><span className="grid size-10 place-items-center rounded-xl bg-[#edf4ed] text-[#4c7758]"><Banknote size={19} /></span><div><h2 className="text-sm font-semibold text-[#2c4236]">Payout account</h2><p className="mt-0.5 text-xs text-[#829087]">Verify a Nigerian bank account in your legal name</p></div></div><VerificationState status={payoutStatus} /></div>
-      const identitySession = await startSellerIdentityVerification(session)
-      reference = identitySession.reference
-      if (identitySession.provider === 'manual_review') {
-        setManualPaystackFlow(true)
-        setNotice('Enter your NIN or BVN and payout bank account to complete Paystack validation.')
-        setIdentityBusy(false)
-        return
-      }
-
         {payoutStatus === 'VERIFIED' && verification?.bankName && <p className="mt-4 flex items-center gap-2 text-sm text-[#477358]"><BadgeCheck size={16} />{verification.bankName} · account ending {verification.bankAccountLast4}</p>}
         {payoutStatus !== 'VERIFIED' && <form onSubmit={(event) => void verifyPayout(event)} className="mt-4 grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
-          <label className="block"><span className="mb-1.5 block text-xs font-semibold text-[#52645a]">Bank</span><select value={bankCode} onChange={(event) => setBankCode(event.target.value)} disabled={identityStatus !== 'VERIFIED' || banks.length === 0 || payoutBusy} required className="h-11 w-full rounded-xl border border-[#dfe7e1] bg-white px-3 text-sm text-[#273a30] outline-none focus:border-[#86a995] disabled:bg-[#f4f6f4]"><option value="">{banks.length ? 'Choose your bank' : 'Loading banks…'}</option>{banks.map((bank) => <option key={bank.code} value={bank.code}>{bank.name}</option>)}</select></label>
-          <label className="block"><span className="mb-1.5 block text-xs font-semibold text-[#52645a]">Account number</span><input type="text" inputMode="numeric" autoComplete="off" minLength={10} maxLength={10} pattern="[0-9]{10}" value={accountNumber} onChange={(event) => setAccountNumber(event.target.value.replace(/\D/g, '').slice(0, 10))} disabled={identityStatus !== 'VERIFIED' || payoutBusy} required placeholder="10 digits" className="h-11 w-full rounded-xl border border-[#dfe7e1] px-3 text-sm text-[#273a30] outline-none focus:border-[#86a995] disabled:bg-[#f4f6f4]" /></label>
+          <label className="block"><span className="mb-1.5 block text-xs font-semibold text-[#52645a]">Bank</span><select value={bankCode} onChange={(event) => {
+            const nextValue = event.target.value
+            setBankCode(nextValue)
+            setDetectedBankName(nextValue ? (banks.find((bank) => bank.code === nextValue)?.name ?? '') : '')
+            setBankSupportWarning(nextValue ? '' : '')
+          }} disabled={identityStatus !== 'VERIFIED' || banks.length === 0 || payoutBusy} required className="h-11 w-full rounded-xl border border-[#dfe7e1] bg-white px-3 text-sm text-[#273a30] outline-none focus:border-[#86a995] disabled:bg-[#f4f6f4]"><option value="">{banks.length ? 'Choose your bank' : 'Loading banks…'}</option>{banks.map((bank) => <option key={bank.code} value={bank.code}>{bank.name}</option>)}</select></label>
+          <label className="block"><span className="mb-1.5 block text-xs font-semibold text-[#52645a]">Account number</span><input type="text" inputMode="numeric" autoComplete="off" minLength={10} maxLength={10} pattern="[0-9]{10}" value={accountNumber} onChange={(event) => {
+            const nextValue = event.target.value.replace(/\D/g, '').slice(0, 10)
+            setAccountNumber(nextValue)
+            autoSelectBankFromAccountNumber(nextValue)
+          }} disabled={identityStatus !== 'VERIFIED' || payoutBusy} required placeholder="10 digits" className="h-11 w-full rounded-xl border border-[#dfe7e1] px-3 text-sm text-[#273a30] outline-none focus:border-[#86a995] disabled:bg-[#f4f6f4]" /></label>
           <Button type="submit" disabled={identityStatus !== 'VERIFIED' || payoutBusy || accountNumber.length !== 10 || !bankCode} icon={payoutBusy ? <LoaderCircle size={15} className="animate-spin" /> : <ShieldCheck size={15} />}>{payoutBusy ? 'Checking…' : 'Verify account'}</Button>
         </form>}
+        {detectedBankName && !bankCode && <p className="mt-2 text-[11px] font-medium text-[#3d6a50]">Detected bank: {detectedBankName}</p>}
+        {bankCode && <p className="mt-2 text-[11px] font-medium text-[#3d6a50]">Selected bank: {banks.find((bank) => bank.code === bankCode)?.name ?? detectedBankName}</p>}
+        {bankSupportWarning && <p className="mt-2 text-[11px] font-medium text-[#9a4e3e]">{bankSupportWarning} Use the dropdown to choose a supported bank from the Paystack list.</p>}
         {identityStatus !== 'VERIFIED' && payoutStatus !== 'VERIFIED' && <p className="mt-4 text-xs text-[#87938b]">Complete identity verification first. Only the bank name and last four digits are retained.</p>}
         {identityStatus === 'VERIFIED' && payoutStatus !== 'VERIFIED' && <p className="mt-3 text-[11px] leading-5 text-[#87938b]">Paystack confirms the account holder name. QuickResell does not save the full account number.</p>}
       </section>
@@ -283,11 +436,3 @@ export function SellerVerificationPage({ session, emailConfirmed, onRequestSignI
     <div className="mt-5 flex items-start gap-2 border-t border-[#e6ebe7] pt-4 text-[11px] leading-5 text-[#859189]"><LockKeyhole size={14} className="mt-0.5 shrink-0" />Identity numbers are sent to the active verification provider and are not stored by QuickResell. QuickResell retains your verification state and payout account details needed for seller payments.</div>
   </section>
 }
-                <label className="block text-xs font-semibold text-[#52645a]"><span className="mb-1.5 block">{manualIdType === 'Passport' ? 'Passport number' : `${manualIdType} number`}</span><input type="text" inputMode="numeric" value={manualIdNumber} onChange={(event) => setManualIdNumber(manualIdType === 'Passport' ? event.target.value : event.target.value.replace(/\D/g, '').slice(0, 11))} placeholder={manualIdType === 'Passport' ? 'Passport number' : '11-digit number'} className="h-11 w-full rounded-xl border border-[#dfe7e1] bg-white px-3 text-sm text-[#273a30] outline-none focus:border-[#86a995]" /></label>
-                {manualPaystackFlow && <div className="grid gap-3 sm:grid-cols-2">
-                  <label className="block text-xs font-semibold text-[#52645a]"><span className="mb-1.5 block">Payout bank</span><select value={bankCode} onChange={(event) => setBankCode(event.target.value)} disabled={banks.length === 0 || identityBusy} required className="h-11 w-full rounded-xl border border-[#dfe7e1] bg-white px-3 text-sm text-[#273a30] outline-none focus:border-[#86a995] disabled:bg-[#f4f6f4]"><option value="">{banks.length ? 'Choose your bank' : 'Loading banks…'}</option>{banks.map((bank) => <option key={bank.code} value={bank.code}>{bank.name}</option>)}</select></label>
-                  <label className="block text-xs font-semibold text-[#52645a]"><span className="mb-1.5 block">Payout account number</span><input type="text" inputMode="numeric" autoComplete="off" minLength={10} maxLength={10} pattern="[0-9]{10}" value={accountNumber} onChange={(event) => {
-                    const nextValue = event.target.value.replace(/\D/g, '').slice(0, 10)
-                    setAccountNumber(nextValue)
-                  }} disabled={identityBusy} required placeholder="10 digits" className="h-11 w-full rounded-xl border border-[#dfe7e1] bg-white px-3 text-sm text-[#273a30] outline-none focus:border-[#86a995] disabled:bg-[#f4f6f4]" /></label>
-                </div>}
