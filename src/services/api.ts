@@ -269,10 +269,10 @@ export async function startSellerIdentityVerification(session?: Session | null):
 }
 
 export async function submitManualSellerReview(
-  input: { legalName: string; idType: 'NIN' | 'BVN' | 'Passport'; consent: boolean },
+  input: { legalName: string; idType: 'NIN' | 'BVN'; idNumber: string; bankCode: string; accountNumber: string; consent: boolean },
   session?: Session | null,
-): Promise<{ status: SellerCheckStatus; provider: 'manual_review'; requiresManualReview: boolean; autoApproved: boolean }> {
-  return request<{ status: SellerCheckStatus; provider: 'manual_review'; requiresManualReview: boolean; autoApproved: boolean }>('/seller/verification/identity/manual-review', {
+): Promise<{ status: SellerCheckStatus; provider: 'manual_review'; requiresManualReview: boolean; autoApproved: boolean; payoutStatus: SellerCheckStatus; bankName: string; accountLast4: string }> {
+  return request<{ status: SellerCheckStatus; provider: 'manual_review'; requiresManualReview: boolean; autoApproved: boolean; payoutStatus: SellerCheckStatus; bankName: string; accountLast4: string }>('/seller/verification/identity/manual-review', {
     method: 'POST',
     body: JSON.stringify(input),
   }, session)

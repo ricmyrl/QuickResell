@@ -131,18 +131,17 @@ export function SellerVerificationPage({ session, emailConfirmed, onRequestSignI
     setNotice('')
     let reference = ''
     try {
-      const identitySession = await startSellerIdentityVerification(session)
-      reference = identitySession.reference
-
-      if (identitySession.provider === 'manual_review') {
+      if (manualPaystackFlow) {
+        if (manualIdType === 'Passport') {
+          throw new Error('Paystack validation requires a Nigerian NIN or BVN. Select one or use Smile ID.')
+        }
         const review = await submitManualSellerReview({
           legalName: manualLegalName.trim() || session.user.user_metadata?.full_name || 'Seller account holder',
           idType: manualIdType,
           consent: true,
         }, session)
-        setNotice(review.autoApproved
-          ? 'Manual identity review was accepted for this demo. You can continue to payout verification.'
-          : 'Your identity details were submitted for manual review. QuickResell will confirm your seller status soon.')
+        setAccountNumber('')
+        setNotice(`${review.bankName} account ending ${review.accountLast4} and your identity were verified by Paystack.`)
         await refreshVerification()
         setIdentityBusy(false)
         return
@@ -174,6 +173,8 @@ export function SellerVerificationPage({ session, emailConfirmed, onRequestSignI
           if (!jobId || !smileUserId) {
             setError('Smile ID accepted the check but returned no verification reference. Contact support.')
             setIdentityBusy(false)
+  const [manualIdNumber, setManualIdNumber] = useState('')
+  const [manualPaystackFlow, setManualPaystackFlow] = useState(false)
             return
           }
           void recordSmileVerificationSubmission({ reference, jobId, smileUserId }, session).then(async () => {
@@ -239,22 +240,34 @@ export function SellerVerificationPage({ session, emailConfirmed, onRequestSignI
           : identityStatus === 'PENDING' ? <p role="status" className="mt-4 flex items-center gap-2 text-sm text-[#85682f]"><LoaderCircle size={16} className="animate-spin" />Smile ID is reviewing your submission. This status refreshes automatically.</p>
             : identityStatus === 'REVIEW_REQUIRED' ? <p className="mt-4 flex items-start gap-2 text-sm leading-5 text-[#8a642d]"><CircleAlert size={16} className="mt-0.5 shrink-0" />Your submission needs additional review. Contact QuickResell support to continue.</p>
               : <div className="mt-4 space-y-4">
-                <div className="rounded-xl bg-[#f7f9f7] p-3.5 text-xs leading-5 text-[#66766e]"><p>QuickResell supports either Smile ID or a free manual review fallback when a specialist KYC provider is unavailable. The free fallback keeps identity verification server-side and does not store raw identity documents or selfies.</p><a href="https://usesmileid.com/privacy" target="_blank" rel="noreferrer" className="mt-2 inline-block font-semibold text-[#41694d] underline">Smile ID privacy information</a></div>
+                <div className="rounded-xl bg-[#f7f9f7] p-3.5 text-xs leading-5 text-[#66766e]"><p>QuickResell uses Smile ID for identity and liveness checks when configured. Otherwise, Paystack validates your NIN or BVN together with your legal name and Nigerian payout account; the identity number is sent only to the backend for that check.</p><a href="https://usesmileid.com/privacy" target="_blank" rel="noreferrer" className="mt-2 inline-block font-semibold text-[#41694d] underline">Smile ID privacy information</a></div>
                 <div className="grid gap-3 sm:grid-cols-[1.2fr_0.8fr]">
                   <label className="block text-xs font-semibold text-[#52645a]"><span className="mb-1.5 block">Legal name</span><input type="text" value={manualLegalName} onChange={(event) => setManualLegalName(event.target.value)} placeholder="Full legal name" className="h-11 w-full rounded-xl border border-[#dfe7e1] bg-white px-3 text-sm text-[#273a30] outline-none focus:border-[#86a995]" /></label>
                   <label className="block text-xs font-semibold text-[#52645a]"><span className="mb-1.5 block">ID type</span><select value={manualIdType} onChange={(event) => setManualIdType(event.target.value as 'NIN' | 'BVN' | 'Passport')} className="h-11 w-full rounded-xl border border-[#dfe7e1] bg-white px-3 text-sm text-[#273a30] outline-none focus:border-[#86a995]">
                     <option value="NIN">NIN</option>
                     <option value="BVN">BVN</option>
+          idNumber: manualIdNumber.trim(),
+          bankCode,
+          accountNumber,
                     <option value="Passport">Passport</option>
                   </select></label>
                 </div>
                 <label className="flex items-start gap-2.5 text-xs leading-5 text-[#5e6f64]"><input type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)} className="mt-1 size-4 accent-[#315f49]" /><span>I consent to QuickResell processing my identity details for seller verification and matching them against the payout account holder name.</span></label>
-                <Button type="button" disabled={!consent || identityBusy || loading} onClick={() => void startIdentityCheck()} icon={identityBusy ? <LoaderCircle size={16} className="animate-spin" /> : <Camera size={16} />}>{identityBusy ? 'Starting identity check…' : identityStatus === 'REJECTED' ? 'Retry identity check' : 'Start identity check'}</Button>
+                <Button type="button" disabled={!consent || identityBusy || loading || (manualPaystackFlow && (manualIdType === 'Passport' || manualIdNumber.length !== 11 || accountNumber.length !== 10 || !bankCode || !manualLegalName.trim()))} onClick={() => void startIdentityCheck()} icon={identityBusy ? <LoaderCircle size={16} className="animate-spin" /> : <Camera size={16} />}>{identityBusy ? 'Validating…' : manualPaystackFlow ? 'Verify identity and payout account' : identityStatus === 'REJECTED' ? 'Retry identity check' : 'Start identity check'}</Button>
               </div>}
       </section>
 
       <section className={`rounded-[16px] border border-[#e2e9e3] bg-white p-5 sm:p-6 ${identityStatus !== 'VERIFIED' ? 'opacity-65' : ''}`}>
         <div className="flex flex-wrap items-center justify-between gap-3"><div className="flex items-center gap-3"><span className="grid size-10 place-items-center rounded-xl bg-[#edf4ed] text-[#4c7758]"><Banknote size={19} /></span><div><h2 className="text-sm font-semibold text-[#2c4236]">Payout account</h2><p className="mt-0.5 text-xs text-[#829087]">Verify a Nigerian bank account in your legal name</p></div></div><VerificationState status={payoutStatus} /></div>
+      const identitySession = await startSellerIdentityVerification(session)
+      reference = identitySession.reference
+      if (identitySession.provider === 'manual_review') {
+        setManualPaystackFlow(true)
+        setNotice('Enter your NIN or BVN and payout bank account to complete Paystack validation.')
+        setIdentityBusy(false)
+        return
+      }
+
         {payoutStatus === 'VERIFIED' && verification?.bankName && <p className="mt-4 flex items-center gap-2 text-sm text-[#477358]"><BadgeCheck size={16} />{verification.bankName} · account ending {verification.bankAccountLast4}</p>}
         {payoutStatus !== 'VERIFIED' && <form onSubmit={(event) => void verifyPayout(event)} className="mt-4 grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
           <label className="block"><span className="mb-1.5 block text-xs font-semibold text-[#52645a]">Bank</span><select value={bankCode} onChange={(event) => setBankCode(event.target.value)} disabled={identityStatus !== 'VERIFIED' || banks.length === 0 || payoutBusy} required className="h-11 w-full rounded-xl border border-[#dfe7e1] bg-white px-3 text-sm text-[#273a30] outline-none focus:border-[#86a995] disabled:bg-[#f4f6f4]"><option value="">{banks.length ? 'Choose your bank' : 'Loading banks…'}</option>{banks.map((bank) => <option key={bank.code} value={bank.code}>{bank.name}</option>)}</select></label>
@@ -267,6 +280,14 @@ export function SellerVerificationPage({ session, emailConfirmed, onRequestSignI
     </div>
 
     {fullyVerified && <div className="mt-5 flex flex-wrap items-center justify-between gap-4 rounded-[14px] border border-[#dceadf] bg-[#f2f8f2] p-4"><p className="flex items-center gap-2 text-sm font-semibold text-[#41694d]"><ShieldCheck size={17} />Seller verification complete</p><Button onClick={onVerified}>Continue to add a product</Button></div>}
-    <div className="mt-5 flex items-start gap-2 border-t border-[#e6ebe7] pt-4 text-[11px] leading-5 text-[#859189]"><LockKeyhole size={14} className="mt-0.5 shrink-0" />Verification images and identity numbers are processed by Smile ID. QuickResell stores only your verification state and a masked payout account reference.</div>
+    <div className="mt-5 flex items-start gap-2 border-t border-[#e6ebe7] pt-4 text-[11px] leading-5 text-[#859189]"><LockKeyhole size={14} className="mt-0.5 shrink-0" />Identity numbers are sent to the active verification provider and are not stored by QuickResell. QuickResell retains your verification state and payout account details needed for seller payments.</div>
   </section>
 }
+                <label className="block text-xs font-semibold text-[#52645a]"><span className="mb-1.5 block">{manualIdType === 'Passport' ? 'Passport number' : `${manualIdType} number`}</span><input type="text" inputMode="numeric" value={manualIdNumber} onChange={(event) => setManualIdNumber(manualIdType === 'Passport' ? event.target.value : event.target.value.replace(/\D/g, '').slice(0, 11))} placeholder={manualIdType === 'Passport' ? 'Passport number' : '11-digit number'} className="h-11 w-full rounded-xl border border-[#dfe7e1] bg-white px-3 text-sm text-[#273a30] outline-none focus:border-[#86a995]" /></label>
+                {manualPaystackFlow && <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="block text-xs font-semibold text-[#52645a]"><span className="mb-1.5 block">Payout bank</span><select value={bankCode} onChange={(event) => setBankCode(event.target.value)} disabled={banks.length === 0 || identityBusy} required className="h-11 w-full rounded-xl border border-[#dfe7e1] bg-white px-3 text-sm text-[#273a30] outline-none focus:border-[#86a995] disabled:bg-[#f4f6f4]"><option value="">{banks.length ? 'Choose your bank' : 'Loading banks…'}</option>{banks.map((bank) => <option key={bank.code} value={bank.code}>{bank.name}</option>)}</select></label>
+                  <label className="block text-xs font-semibold text-[#52645a]"><span className="mb-1.5 block">Payout account number</span><input type="text" inputMode="numeric" autoComplete="off" minLength={10} maxLength={10} pattern="[0-9]{10}" value={accountNumber} onChange={(event) => {
+                    const nextValue = event.target.value.replace(/\D/g, '').slice(0, 10)
+                    setAccountNumber(nextValue)
+                  }} disabled={identityBusy} required placeholder="10 digits" className="h-11 w-full rounded-xl border border-[#dfe7e1] bg-white px-3 text-sm text-[#273a30] outline-none focus:border-[#86a995] disabled:bg-[#f4f6f4]" /></label>
+                </div>}
