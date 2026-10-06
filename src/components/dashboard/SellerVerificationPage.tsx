@@ -173,7 +173,7 @@ export function SellerVerificationPage({ session, emailConfirmed, onRequestSignI
   const [accountNumber, setAccountNumber] = useState('')
   const [consent, setConsent] = useState(false)
   const [manualLegalName, setManualLegalName] = useState('')
-  const [manualIdType, setManualIdType] = useState<'NIN' | 'BVN' | 'Passport'>('NIN')
+  const [manualIdType, setManualIdType] = useState<'NIN' | 'BVN'>('NIN')
   const [manualIdNumber, setManualIdNumber] = useState('')
   const [manualPaystackFlow, setManualPaystackFlow] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -241,9 +241,6 @@ export function SellerVerificationPage({ session, emailConfirmed, onRequestSignI
     let reference = ''
     try {
       if (manualPaystackFlow) {
-        if (manualIdType === 'Passport') {
-          throw new Error('Paystack validation requires a Nigerian NIN or BVN. Select one or use Smile ID.')
-        }
         const review = await submitManualSellerReview({
           legalName: paystackLegalName,
           idType: manualIdType,
@@ -263,7 +260,22 @@ export function SellerVerificationPage({ session, emailConfirmed, onRequestSignI
       reference = identitySession.reference
       if (identitySession.provider === 'manual_review') {
         setManualPaystackFlow(true)
-        setNotice('Enter your NIN or BVN and payout bank account to complete Paystack validation.')
+        if (!paystackFormReady || !consent) {
+          setNotice('Complete the NIN or BVN and payout details below, then submit the form.')
+          setIdentityBusy(false)
+          return
+        }
+        const review = await submitManualSellerReview({
+          legalName: paystackLegalName,
+          idType: manualIdType,
+          idNumber: manualIdNumber.trim(),
+          bankCode,
+          accountNumber,
+          consent: true,
+        }, session)
+        setAccountNumber('')
+        setNotice(`${review.bankName} account ending ${review.accountLast4} and your identity were verified by Paystack.`)
+        await refreshVerification()
         setIdentityBusy(false)
         return
       }
@@ -366,10 +378,10 @@ export function SellerVerificationPage({ session, emailConfirmed, onRequestSignI
   const identityStatus = verification?.identityStatus ?? 'NOT_STARTED'
   const payoutStatus = verification?.payoutStatus ?? 'NOT_STARTED'
   const fullyVerified = identityStatus === 'VERIFIED' && payoutStatus === 'VERIFIED'
+  const paystackProvider = manualPaystackFlow || verification?.provider === 'manual_review'
   const paystackLegalName = manualLegalName.trim() ||
     (typeof session.user.user_metadata?.full_name === 'string' ? session.user.user_metadata.full_name.trim() : '')
-  const paystackFormReady = manualIdType !== 'Passport' &&
-    manualIdNumber.length === 11 &&
+  const paystackFormReady = manualIdNumber.length === 11 &&
     accountNumber.length === 10 &&
     Boolean(bankCode && paystackLegalName)
 
@@ -386,30 +398,30 @@ export function SellerVerificationPage({ session, emailConfirmed, onRequestSignI
 
     <div className="space-y-4">
       <section className="rounded-[16px] border border-[#e2e9e3] bg-white p-5 sm:p-6">
-        <div className="flex flex-wrap items-center justify-between gap-3"><div className="flex items-center gap-3"><span className="grid size-10 place-items-center rounded-xl bg-[#edf4ed] text-[#4c7758]"><Fingerprint size={19} /></span><div><h2 className="text-sm font-semibold text-[#2c4236]">Identity and liveness</h2><p className="mt-0.5 text-xs text-[#829087]">NIN or BVN with a live selfie check via Smile ID</p></div></div><VerificationState status={identityStatus} /></div>
-        {identityStatus === 'VERIFIED' ? <p className="mt-4 flex items-center gap-2 text-sm text-[#477358]"><BadgeCheck size={16} />Identity verification is complete.</p>
+        <div className="flex flex-wrap items-center justify-between gap-3"><div className="flex items-center gap-3"><span className="grid size-10 place-items-center rounded-xl bg-[#edf4ed] text-[#4c7758]"><Fingerprint size={19} /></span><div><h2 className="text-sm font-semibold text-[#2c4236]">Identity and payout verification</h2><p className="mt-0.5 text-xs text-[#829087]">Verify with Smile ID or with NIN/BVN and Paystack</p></div></div><VerificationState status={identityStatus} /></div>
+        {fullyVerified || (identityStatus === 'VERIFIED' && !paystackProvider) ? <p className="mt-4 flex items-center gap-2 text-sm text-[#477358]"><BadgeCheck size={16} />Identity verification is complete.</p>
           : identityStatus === 'PENDING' ? <p role="status" className="mt-4 flex items-center gap-2 text-sm text-[#85682f]"><LoaderCircle size={16} className="animate-spin" />Smile ID is reviewing your submission. This status refreshes automatically.</p>
             : identityStatus === 'REVIEW_REQUIRED' ? <p className="mt-4 flex items-start gap-2 text-sm leading-5 text-[#8a642d]"><CircleAlert size={16} className="mt-0.5 shrink-0" />Your submission needs additional review. Contact QuickResell support to continue.</p>
               : <div className="mt-4 space-y-4">
                 <div className="rounded-xl bg-[#f7f9f7] p-3.5 text-xs leading-5 text-[#66766e]"><p>QuickResell uses Smile ID for identity and liveness checks when configured. Otherwise, Paystack validates your NIN or BVN together with your legal name and Nigerian payout account; the identity number is sent only to the backend for that check.</p><a href="https://usesmileid.com/privacy" target="_blank" rel="noreferrer" className="mt-2 inline-block font-semibold text-[#41694d] underline">Smile ID privacy information</a></div>
                 <div className="grid gap-3 sm:grid-cols-[1.2fr_0.8fr]">
                   <label className="block text-xs font-semibold text-[#52645a]"><span className="mb-1.5 block">Legal name</span><input type="text" value={manualLegalName} onChange={(event) => setManualLegalName(event.target.value)} placeholder="Full legal name" className="h-11 w-full rounded-xl border border-[#dfe7e1] bg-white px-3 text-sm text-[#273a30] outline-none focus:border-[#86a995]" /></label>
-                  <label className="block text-xs font-semibold text-[#52645a]"><span className="mb-1.5 block">ID type</span><select value={manualIdType} onChange={(event) => setManualIdType(event.target.value as 'NIN' | 'BVN' | 'Passport')} className="h-11 w-full rounded-xl border border-[#dfe7e1] bg-white px-3 text-sm text-[#273a30] outline-none focus:border-[#86a995]">
+                  <label className="block text-xs font-semibold text-[#52645a]"><span className="mb-1.5 block">ID type</span><select value={manualIdType} onChange={(event) => setManualIdType(event.target.value as 'NIN' | 'BVN')} className="h-11 w-full rounded-xl border border-[#dfe7e1] bg-white px-3 text-sm text-[#273a30] outline-none focus:border-[#86a995]">
                     <option value="NIN">NIN</option>
                     <option value="BVN">BVN</option>
-                    <option value="Passport">Passport</option>
                   </select></label>
                 </div>
-                <label className="block text-xs font-semibold text-[#52645a]"><span className="mb-1.5 block">{manualIdType === 'Passport' ? 'Passport number' : `${manualIdType} number`}</span><input type="text" inputMode="numeric" value={manualIdNumber} onChange={(event) => setManualIdNumber(manualIdType === 'Passport' ? event.target.value : event.target.value.replace(/\D/g, '').slice(0, 11))} placeholder={manualIdType === 'Passport' ? 'Passport number' : '11-digit number'} className="h-11 w-full rounded-xl border border-[#dfe7e1] bg-white px-3 text-sm text-[#273a30] outline-none focus:border-[#86a995]" /></label>
-                {manualPaystackFlow && <div className="grid gap-3 sm:grid-cols-2">
+                <label className="block text-xs font-semibold text-[#52645a]"><span className="mb-1.5 block">{manualIdType} number</span><input type="text" inputMode="numeric" autoComplete="off" maxLength={11} pattern="[0-9]{11}" value={manualIdNumber} onChange={(event) => setManualIdNumber(event.target.value.replace(/\D/g, '').slice(0, 11))} placeholder="11-digit number" className="h-11 w-full rounded-xl border border-[#dfe7e1] bg-white px-3 text-sm text-[#273a30] outline-none focus:border-[#86a995]" /></label>
+                <div className="grid gap-3 sm:grid-cols-2">
                   <label className="block text-xs font-semibold text-[#52645a]"><span className="mb-1.5 block">Payout bank</span><select value={bankCode} onChange={(event) => setBankCode(event.target.value)} disabled={banks.length === 0 || identityBusy} required className="h-11 w-full rounded-xl border border-[#dfe7e1] bg-white px-3 text-sm text-[#273a30] outline-none focus:border-[#86a995] disabled:bg-[#f4f6f4]"><option value="">{banks.length ? 'Choose your bank' : 'Loading banks…'}</option>{banks.map((bank) => <option key={bank.code} value={bank.code}>{bank.name}</option>)}</select></label>
                   <label className="block text-xs font-semibold text-[#52645a]"><span className="mb-1.5 block">Payout account number</span><input type="text" inputMode="numeric" autoComplete="off" minLength={10} maxLength={10} pattern="[0-9]{10}" value={accountNumber} onChange={(event) => {
                     const nextValue = event.target.value.replace(/\D/g, '').slice(0, 10)
                     setAccountNumber(nextValue)
                   }} disabled={identityBusy} required placeholder="10 digits" className="h-11 w-full rounded-xl border border-[#dfe7e1] bg-white px-3 text-sm text-[#273a30] outline-none focus:border-[#86a995] disabled:bg-[#f4f6f4]" /></label>
-                </div>}
-                {manualPaystackFlow && <p className="text-xs leading-5 text-[#718078]">Enter your legal name, 11-digit NIN or BVN, bank, and 10-digit account number, then use the verification button in the Payout account section below.</p>}
+                </div>
+                <p className="text-xs leading-5 text-[#718078]">Enter your legal name, 11-digit NIN or BVN, bank, and 10-digit account number, then submit once to verify your identity and payout account.</p>
                 <label className="flex items-start gap-2.5 text-xs leading-5 text-[#5e6f64]"><input type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)} className="mt-1 size-4 accent-[#315f49]" /><span>I consent to QuickResell processing my identity details for seller verification and matching them against the payout account holder name.</span></label>
+                <Button type="button" disabled={!consent || identityBusy || loading || !paystackFormReady} onClick={() => void startIdentityCheck()} icon={identityBusy ? <LoaderCircle size={16} className="animate-spin" /> : <Camera size={16} />}>{identityBusy ? 'Verifying…' : 'Verify identity and payout account'}</Button>
               </div>}
       </section>
 
@@ -417,12 +429,11 @@ export function SellerVerificationPage({ session, emailConfirmed, onRequestSignI
         <div className="flex flex-wrap items-center justify-between gap-3"><div className="flex items-center gap-3"><span className="grid size-10 place-items-center rounded-xl bg-[#edf4ed] text-[#4c7758]"><Banknote size={19} /></span><div><h2 className="text-sm font-semibold text-[#2c4236]">Payout account</h2><p className="mt-0.5 text-xs text-[#829087]">Verify a Nigerian bank account in your legal name</p></div></div><VerificationState status={payoutStatus} /></div>
         {identityStatus !== 'VERIFIED' && <div className="mt-4 space-y-3">
           <p className="text-sm leading-5 text-[#718078]">{manualPaystackFlow
-            ? 'Paystack needs your legal name, 11-digit NIN or BVN, selected bank, 10-digit account number, and consent. The button below activates when those details are complete.'
-            : 'Start identity verification here. If Paystack is your active provider, you will be asked for your NIN or BVN and payout details above before completing the check.'}</p>
-          <Button type="button" disabled={!consent || identityBusy || loading || (manualPaystackFlow && !paystackFormReady)} onClick={() => void startIdentityCheck()} icon={identityBusy ? <LoaderCircle size={16} className="animate-spin" /> : <Camera size={16} />}>{identityBusy ? 'Validating…' : manualPaystackFlow ? 'Verify identity and payout account' : identityStatus === 'REJECTED' ? 'Retry identity check' : 'Start identity verification'}</Button>
+            ? 'Paystack needs your legal name, 11-digit NIN or BVN, selected bank, 10-digit account number, and consent.'
+            : 'Complete the single form in the Identity and payout verification section above to verify with Paystack.'}</p>
         </div>}
         {payoutStatus === 'VERIFIED' && verification?.bankName && <p className="mt-4 flex items-center gap-2 text-sm text-[#477358]"><BadgeCheck size={16} />{verification.bankName} · account ending {verification.bankAccountLast4}</p>}
-        {payoutStatus !== 'VERIFIED' && <form onSubmit={(event) => void verifyPayout(event)} className="mt-4 grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+        {identityStatus === 'VERIFIED' && payoutStatus !== 'VERIFIED' && !paystackProvider && <form onSubmit={(event) => void verifyPayout(event)} className="mt-4 grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
           <label className="block"><span className="mb-1.5 block text-xs font-semibold text-[#52645a]">Bank</span><select value={bankCode} onChange={(event) => {
             const nextValue = event.target.value
             setBankCode(nextValue)
@@ -440,7 +451,7 @@ export function SellerVerificationPage({ session, emailConfirmed, onRequestSignI
         {bankCode && <p className="mt-2 text-[11px] font-medium text-[#3d6a50]">Selected bank: {banks.find((bank) => bank.code === bankCode)?.name ?? detectedBankName}</p>}
         {bankSupportWarning && <p className="mt-2 text-[11px] font-medium text-[#9a4e3e]">{bankSupportWarning} Use the dropdown to choose a supported bank from the Paystack list.</p>}
         {identityStatus !== 'VERIFIED' && payoutStatus !== 'VERIFIED' && <p className="mt-4 text-xs text-[#87938b]">Complete identity verification first. Only the bank name and last four digits are retained.</p>}
-        {identityStatus === 'VERIFIED' && payoutStatus !== 'VERIFIED' && <p className="mt-3 text-[11px] leading-5 text-[#87938b]">Paystack confirms the account holder name. QuickResell does not save the full account number.</p>}
+        {identityStatus === 'VERIFIED' && payoutStatus !== 'VERIFIED' && !paystackProvider && <p className="mt-3 text-[11px] leading-5 text-[#87938b]">Paystack confirms the account holder name. QuickResell does not save the full account number.</p>}
       </section>
     </div>
 

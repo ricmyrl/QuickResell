@@ -49,6 +49,7 @@ export type SellerCheckStatus = 'NOT_STARTED' | 'PENDING' | 'VERIFIED' | 'REJECT
 export type SellerVerification = {
   identityStatus: SellerCheckStatus
   payoutStatus: SellerCheckStatus
+  provider?: 'smile' | 'manual_review'
   identityVerifiedAt: string | null
   payoutVerifiedAt: string | null
   bankName: string | null
@@ -251,8 +252,8 @@ export async function getAccountProfile(session?: Session | null): Promise<Accou
 }
 
 export async function getSellerVerification(session?: Session | null): Promise<SellerVerification | null> {
-  const result = await request<{ verification: SellerVerification | null }>('/seller/verification', {}, session)
-  return result.verification
+  const result = await request<{ provider: 'smile' | 'manual_review'; verification: SellerVerification | null }>('/seller/verification', {}, session)
+  return result.verification ? { ...result.verification, provider: result.provider } : null
 }
 
 export async function getSellerBanks(session?: Session | null): Promise<SellerBank[]> {
