@@ -5,6 +5,7 @@ import { Bell, BellDot, Bookmark, Compass, GraduationCap, ImagePlus, LayoutDashb
 import type { Session } from '@supabase/supabase-js'
 import { Button, IconButton } from './components/common/Button'
 import { NotificationsPanel } from './components/common/NotificationsPanel'
+import { formatNotificationMessage } from './components/common/notificationMessage'
 import { TrustScoreBadge } from './components/common/TrustScoreBadge'
 import { supabase } from './lib/supabase'
 import { useCurrency } from './lib/CurrencyContext'
@@ -89,7 +90,7 @@ function mergeAuctionPatch(auction: Auction, patch: Partial<Auction>): Auction {
 export default function MarketplaceApp() {
   const location = useLocation()
   const navigate = useNavigate()
-  const { localToUsd } = useCurrency()
+  const { localToUsd, formatUsd } = useCurrency()
   const view = viewForPath(location.pathname)
   const selectedId = location.pathname.match(/^\/auctions\/([^/]+)$/)?.[1] ?? null
   const authMode: AuthMode | null = location.pathname === '/auth/register' ? 'register' : location.pathname === '/auth/sign-in' ? 'signin' : null
@@ -753,7 +754,7 @@ export default function MarketplaceApp() {
         <div className="relative">
           <IconButton label={unreadNotifications > 0 ? `Notifications, ${unreadNotifications} unread` : 'Notifications'} onClick={() => setNotificationsOpen((current) => !current)}><Bell size={17} /></IconButton>
           {unreadNotifications > 0 && <span className="pointer-events-none absolute -right-1 -top-1 min-w-3 text-center text-[9px] font-bold leading-3 text-[#d94b3d]">{Math.min(unreadNotifications, 9)}</span>}
-          {notificationsOpen && <div className="absolute right-0 top-12 z-50 w-[320px] overflow-hidden rounded-2xl border border-[#e4eae5] bg-white shadow-2xl">
+          {notificationsOpen && <div className="absolute right-0 top-12 z-50 hidden w-[320px] overflow-hidden rounded-2xl border border-[#e4eae5] bg-white shadow-2xl sm:block">
             <div className="flex items-center justify-between border-b border-[#eef2ee] px-4 py-3">
               <div><p className="text-[10px] font-bold uppercase tracking-[.12em] text-[#909c96]">Alerts</p><p className="mt-0.5 text-sm font-semibold text-[#2a4035]">Your marketplace feed</p></div>
               {unreadNotifications > 0 && <button type="button" onClick={() => void handleMarkAllNotificationsRead()} className="text-[11px] font-semibold text-[#3d6e5d] underline-offset-2 hover:underline">Clear all</button>}
@@ -763,7 +764,7 @@ export default function MarketplaceApp() {
                 ? <div className="rounded-xl bg-[#f7faf7] px-3 py-5 text-center text-xs text-[#7d8a84]">No notifications yet. New bids, order updates, and price changes will appear here.</div>
                 : notifications.slice(0, 8).map((notification) => <button key={notification.id} type="button" onClick={() => void handleNotificationClick(notification)} className={`flex w-full items-start gap-3 rounded-xl border px-3 py-3 text-left transition ${notification.isRead ? 'border-transparent bg-[#f9faf9]' : 'border-[#e4f0e7] bg-[#edf8f1]'}`}>
                   <span className={`mt-0.5 grid size-7 place-items-center rounded-full ${notification.type === 'OUTBID' || notification.type === 'AUCTION_CLOSED' ? 'bg-[#fff3ef] text-[#c8574a]' : notification.type === 'AUCTION_WON' || notification.type === 'LISTING_SOLD' ? 'bg-[#eaf9ea] text-[#3c7d5b]' : 'bg-[#edf2ff] text-[#536ab9]'}`}><Bell size={14} /></span>
-                  <span className="min-w-0 flex-1"><span className="block text-[11px] font-semibold uppercase tracking-[.08em] text-[#8a9891]">{notification.type.replace(/_/g, ' ').toLowerCase()}</span><span className="mt-0.5 block text-sm font-semibold text-[#21372f]">{notification.title}</span><span className="mt-1 block text-xs leading-5 text-[#75837d]">{notification.message}</span></span>
+                  <span className="min-w-0 flex-1"><span className="block text-[11px] font-semibold uppercase tracking-[.08em] text-[#8a9891]">{notification.type.replace(/_/g, ' ').toLowerCase()}</span><span className="mt-0.5 block text-sm font-semibold text-[#21372f]">{notification.title}</span><span className="mt-1 block text-xs leading-5 text-[#75837d]">{formatNotificationMessage(notification.message, formatUsd)}</span></span>
                 </button>)}
             </div>
           </div>}

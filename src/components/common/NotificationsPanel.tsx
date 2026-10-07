@@ -3,6 +3,8 @@ import { AnimatePresence, motion } from 'framer-motion'
 import { Bell, X } from 'lucide-react'
 import type { NotificationItem } from '../../types'
 import { IconButton } from './Button'
+import { useCurrency } from '../../lib/CurrencyContext'
+import { formatNotificationMessage } from './notificationMessage'
 
 export function NotificationsPanel({ open, notifications, onClose, onMarkAllRead, onRead }: {
   open: boolean
@@ -11,6 +13,7 @@ export function NotificationsPanel({ open, notifications, onClose, onMarkAllRead
   onMarkAllRead: () => void
   onRead: (notification: NotificationItem) => void
 }) {
+  const { formatUsd } = useCurrency()
   const content = <>
     <div className="flex items-center justify-between border-b border-[#eef2ee] px-4 py-3">
       <div><p className="text-[10px] font-bold uppercase tracking-[.12em] text-[#909c96]">Alerts</p><p className="mt-0.5 text-sm font-semibold text-[#2a4035]">Your marketplace feed</p></div>
@@ -24,7 +27,7 @@ export function NotificationsPanel({ open, notifications, onClose, onMarkAllRead
         ? <div className="rounded-xl bg-[#f7faf7] px-3 py-5 text-center text-xs text-[#7d8a84]">No notifications yet. New bids, order updates, and price changes will appear here.</div>
         : notifications.slice(0, 8).map((notification) => <button key={notification.id} type="button" onClick={() => onRead(notification)} className={`flex w-full items-start gap-3 rounded-xl border px-3 py-3 text-left transition ${notification.isRead ? 'border-transparent bg-[#f9faf9]' : 'border-[#e4f0e7] bg-[#edf8f1]'}`}>
           <span className={`mt-0.5 grid size-7 shrink-0 place-items-center rounded-full ${notification.type === 'OUTBID' || notification.type === 'AUCTION_CLOSED' ? 'bg-[#fff3ef] text-[#c8574a]' : notification.type === 'AUCTION_WON' || notification.type === 'LISTING_SOLD' ? 'bg-[#eaf9ea] text-[#3c7d5b]' : 'bg-[#edf2ff] text-[#536ab9]'}`}><Bell size={14} /></span>
-          <span className="min-w-0 flex-1"><span className="block text-[11px] font-semibold uppercase tracking-[.08em] text-[#8a9891]">{notification.type.replace(/_/g, ' ').toLowerCase()}</span><span className="mt-0.5 block text-sm font-semibold text-[#21372f]">{notification.title}</span><span className="mt-1 block text-xs leading-5 text-[#75837d]">{notification.message}</span></span>
+          <span className="min-w-0 flex-1"><span className="block text-[11px] font-semibold uppercase tracking-[.08em] text-[#8a9891]">{notification.type.replace(/_/g, ' ').toLowerCase()}</span><span className="mt-0.5 block text-sm font-semibold text-[#21372f]">{notification.title}</span><span className="mt-1 block text-xs leading-5 text-[#75837d]">{formatNotificationMessage(notification.message, formatUsd)}</span></span>
         </button>)}
     </div>
   </>

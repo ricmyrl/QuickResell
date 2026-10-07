@@ -70,6 +70,11 @@ export function AuctionRoom({ auction, userId, onBack, onBid, onExpire, onNotice
     }
   }, [auction.currentHighestBid])
 
+  useEffect(() => {
+    prevHighestBidRef.current = auction.currentHighestBid
+    setCustomBid('')
+  }, [auction.id])
+
   // Sync bids state when auction prop updates
   useEffect(() => { 
     setBids(auction.bids)
