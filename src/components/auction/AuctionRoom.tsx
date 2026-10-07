@@ -28,16 +28,26 @@ export function AuctionRoom({ auction, userId, onBack, onBid, onExpire, onNotice
   const [hasClosed, setHasClosed] = useState(false)
   const [verdictOpen, setVerdictOpen] = useState(false)
   const [imageOpen, setImageOpen] = useState(false)
+
+  // Custom Bid state
+  const [customBid, setCustomBid] = useState<string>('')
+
   const closeImage = useCallback(() => setImageOpen(false), [])
   const lastBidIds = useRef(new Set(auction.bids.map((bid) => bid.id)))
   const isSeller = userId === auction.sellerId
   const isActive = auction.status === 'ACTIVE' && !countdown.expired
+  
+  const minRequiredBid = auction.currentHighestBid > 0 
+    ? auction.currentHighestBid + 1 
+    : auction.startingPrice
+
   const remainingBidAmount = Math.max(0, maxAllowedBid - auction.currentHighestBid)
   const standardIncrements = [5, 10, 20].filter((increment) => increment <= remainingBidAmount)
   const bidIncrements = standardIncrements.length > 0 ? standardIncrements : remainingBidAmount > 0 ? [remainingBidAmount] : []
   const primaryBidIncrement = [20, 10, 5].find((increment) => increment <= remainingBidAmount) ?? remainingBidAmount
 
   useEffect(() => { setBids(auction.bids); lastBidIds.current = new Set(auction.bids.map((bid) => bid.id)) }, [auction.id, auction.bids])
+
   const addLiveBid = (bid: Bid) => {
     if (lastBidIds.current.has(bid.id)) return
     lastBidIds.current.add(bid.id)
@@ -53,12 +63,35 @@ export function AuctionRoom({ auction, userId, onBack, onBid, onExpire, onNotice
     }).catch((error: unknown) => { setHasClosed(false); onNotice(error instanceof Error ? error.message : 'Could not finalize this auction.', 'error') })
   }, [countdown.expired, auction.status, hasClosed, onExpire, onNotice, isSeller, auction.highestBidderId])
 
-  const bidIncrement = async (increment: number) => {
+  const handlePlaceBid = async (amount: number) => {
+    if (amount < minRequiredBid) {
+      onNotice(`Bid must be at least ${currency.format(minRequiredBid)}`, 'error')
+      return
+    }
+    if (amount > maxAllowedBid) {
+      onNotice(`Bid cannot exceed ${currency.format(maxAllowedBid)}`, 'error')
+      return
+    }
+
     setBidding(true)
-    try { await onBid(auction.currentHighestBid + increment); onNotice('Your bid is in. The room is updated live.', 'success') }
-    catch (error) { onNotice(error instanceof Error ? error.message : 'Bid could not be placed.', 'error') }
-    finally { setBidding(false) }
+    try { 
+      await onBid(amount)
+      setCustomBid('')
+      onNotice('Your bid is in. The room is updated live.', 'success') 
+    } catch (error) { 
+      onNotice(error instanceof Error ? error.message : 'Bid could not be placed.', 'error') 
+    } finally { 
+      setBidding(false) 
+    }
   }
+
+  // Determine effective target bid for the main submit button
+  const parsedCustomBid = parseFloat(customBid)
+  const hasCustomInput = !isNaN(parsedCustomBid) && customBid.trim() !== ''
+  const targetBidAmount = hasCustomInput ? parsedCustomBid : auction.currentHighestBid + primaryBidIncrement
+
+  const isCustomBidValid = hasCustomInput ? (parsedCustomBid >= minRequiredBid && parsedCustomBid <= maxAllowedBid) : true
+
   const clock = countdown.days > 0 ? `${countdown.days}d ${String(countdown.hours).padStart(2, '0')}h` : `${String(countdown.hours).padStart(2, '0')}:${String(countdown.minutes).padStart(2, '0')}:${String(countdown.seconds).padStart(2, '0')}`
 
   return (
@@ -132,32 +165,72 @@ export function AuctionRoom({ auction, userId, onBack, onBid, onExpire, onNotice
 
             <p className="mt-2 text-xs text-[#85918a] truncate">{bids.length} bids · starts at {currency.format(auction.startingPrice)}</p>
 
-            <div className="mt-5 grid grid-cols-3 gap-1.5 sm:gap-2">
-              {bidIncrements.map((increment) => (
-                <Button 
-                  key={increment} 
-                  variant="secondary" 
-                  disabled={!isActive || bidding || isSeller} 
-                  onClick={() => void bidIncrement(increment)} 
-                  className="min-h-12 w-full min-w-0 flex-col justify-center gap-0.5 overflow-hidden rounded-xl px-1 py-1.5 text-center"
-                >
-                  <span className="w-full truncate text-xs font-bold tracking-tight sm:text-sm">
-                    +{currency.format(increment)}
-                  </span>
-                  <span className="w-full truncate text-[9px] font-medium tracking-tight text-[#8a9690] sm:text-[10px]">
-                    {currency.format(auction.currentHighestBid + increment)}
-                  </span>
-                </Button>
-              ))}
+            {/* Quick Increment Buttons */}
+            <div className="mt-4 grid grid-cols-3 gap-1.5 sm:gap-2">
+              {bidIncrements.map((increment) => {
+                const targetAmount = auction.currentHighestBid + increment
+                return (
+                  <Button 
+                    key={increment} 
+                    variant="secondary" 
+                    disabled={!isActive || bidding || isSeller} 
+                    onClick={() => {
+                      setCustomBid(String(targetAmount))
+                    }} 
+                    className="min-h-11 w-full min-w-0 flex-col justify-center gap-0.5 overflow-hidden rounded-xl px-1 py-1 text-center"
+                  >
+                    <span className="w-full truncate text-xs font-bold tracking-tight sm:text-sm">
+                      +{currency.format(increment)}
+                    </span>
+                    <span className="w-full truncate text-[9px] font-medium tracking-tight text-[#8a9690] sm:text-[10px]">
+                      {currency.format(targetAmount)}
+                    </span>
+                  </Button>
+                )
+              })}
             </div>
 
+            {/* Custom Bid Input Field */}
+            <div className="mt-3">
+              <label htmlFor="custom-bid-input" className="sr-only">Custom Bid Amount</label>
+              <div className="relative flex items-center">
+                <span className="pointer-events-none absolute left-3 text-sm font-semibold text-[#829089]">$</span>
+                <input
+                  id="custom-bid-input"
+                  type="number"
+                  min={minRequiredBid}
+                  max={maxAllowedBid}
+                  step="any"
+                  placeholder={`Custom amount (min ${currency.format(minRequiredBid)})`}
+                  value={customBid}
+                  disabled={!isActive || bidding || isSeller}
+                  onChange={(e) => setCustomBid(e.target.value)}
+                  className="w-full rounded-xl border border-[#dce3de] bg-[#f9faf9] py-2.5 pl-7 pr-3 text-sm font-semibold text-[#1c2b26] placeholder-[#909c95] outline-none transition focus:border-[#5b8a71] focus:bg-white focus:ring-1 focus:ring-[#5b8a71] disabled:cursor-not-allowed disabled:opacity-60"
+                />
+              </div>
+              {hasCustomInput && !isCustomBidValid && (
+                <p className="mt-1 text-[11px] font-medium text-[#c7473c]">
+                  {parsedCustomBid < minRequiredBid 
+                    ? `Minimum bid is ${currency.format(minRequiredBid)}` 
+                    : `Maximum allowed bid is ${currency.format(maxAllowedBid)}`}
+                </p>
+              )}
+            </div>
+
+            {/* Main Submit Button */}
             <Button 
-              disabled={!isActive || bidding || isSeller || primaryBidIncrement <= 0} 
-              onClick={() => void bidIncrement(primaryBidIncrement)} 
+              disabled={!isActive || bidding || isSeller || !isCustomBidValid || targetBidAmount <= auction.currentHighestBid} 
+              onClick={() => void handlePlaceBid(targetBidAmount)} 
               icon={<Gavel size={15} />} 
               className="mt-2.5 w-full truncate rounded-xl py-3 text-sm font-bold"
             >
-              {isSeller ? 'Sellers can’t bid here' : bidding ? 'Placing bid…' : primaryBidIncrement > 0 ? `Bid ${currency.format(auction.currentHighestBid + primaryBidIncrement)}` : 'Maximum bid reached'}
+              {isSeller 
+                ? 'Sellers can’t bid here' 
+                : bidding 
+                ? 'Placing bid…' 
+                : targetBidAmount > auction.currentHighestBid 
+                ? `Bid ${currency.format(targetBidAmount)}` 
+                : 'Enter a valid bid'}
             </Button>
 
             {remainingBidAmount <= 0 && <p className="mt-2 text-center text-[11px] font-medium text-[#87938d]">This auction has reached the maximum bid.</p>}
