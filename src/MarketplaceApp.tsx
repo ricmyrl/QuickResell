@@ -667,14 +667,7 @@ export default function MarketplaceApp() {
       try {
         const items = await getNotifications(session)
         if (cancelled) return
-        setNotifications((current) => {
-          const previousUnread = current.filter((item) => !item.isRead).length
-          const nextUnread = items.filter((item) => !item.isRead).length
-          if (nextUnread > previousUnread && items[0]) {
-            showToast(items[0].title, 'success')
-          }
-          return items
-        })
+        setNotifications(items)
       } catch {
         if (!cancelled) setNotifications([])
       }
