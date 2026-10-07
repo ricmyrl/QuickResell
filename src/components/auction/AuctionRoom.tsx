@@ -262,9 +262,18 @@ export function AuctionRoom({ auction, userId, onBack, onBid, onExpire, onNotice
               disabled={!isActive || bidding || isSeller || !isValidBid} 
               onClick={() => void handlePlaceBid(targetBidAmount)} 
               icon={<Gavel size={15} />} 
-              className="mt-2.5 w-full truncate rounded-xl py-3 text-sm font-bold"
+              className="mt-2.5 w-full rounded-xl py-3 text-sm font-bold"
             >
-              {getButtonText()}
+              {isSeller || bidding || !isActive ? getButtonText() : (
+                <span className="flex min-w-0 flex-col items-start leading-tight">
+                  <span className="text-[11px] font-semibold uppercase tracking-wide text-white/75">
+                    {hasCustomInput ? 'Custom bid' : 'Place bid'}
+                  </span>
+                  <span className="text-base font-bold tabular-nums">
+                    {currency.format(targetBidAmount)}
+                  </span>
+                </span>
+              )}
             </Button>
 
             {remainingBidAmount <= 0 && <p className="mt-2 text-center text-[11px] font-medium text-[#87938d]">This auction has reached the maximum bid.</p>}
