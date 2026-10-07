@@ -15,22 +15,15 @@ import { useCurrency } from '../../lib/CurrencyContext'
 
 const maxAllowedBid = 10_000_000
 
-function sanitizeCustomBidInput(value: string): string {
-  const cleaned = value.replace(/[^0-9.]/g, '')
-  const [whole, ...parts] = cleaned.split('.')
-
-  if (!whole && parts.length === 0) return ''
-  const decimalPart = parts.length > 0 ? `.${parts.join('')}` : ''
-  return `${whole || '0'}${decimalPart}`
-}
-
 export function AuctionRoom({ auction, userId, onBack, onBid, onExpire, onNotice, onRoomUpdate, onVerdict }: {
   auction: Auction; userId?: string; session: Session | null; emailConfirmed: boolean; onRequestSignIn: () => void; onBack: () => void; onBid: (amount: number) => Promise<void>; onExpire: () => Promise<void>
   onNotice: (message: string, kind?: 'success' | 'error') => void; onRoomUpdate: (patch: Partial<Auction>) => void
   onVerdict: (decision: Verdict) => Promise<void>
 }) {
-  const { formatUsd } = useCurrency()
+  const { formatUsd, localToUsd, usdToLocal, displayCurrency, ratesReady } = useCurrency()
   const currency = { format: (amount: number) => formatUsd(amount) }
+  const toUsd = (amount: number) => displayCurrency === 'USD' ? amount : localToUsd(amount)
+  const fromUsd = (amount: number) => displayCurrency === 'USD' ? amount : usdToLocal(amount)
   const countdown = useCountdown(auction.endsAt)
   const [bidding, setBidding] = useState(false)
   const [bids, setBids] = useState(auction.bids)
@@ -48,29 +41,26 @@ export function AuctionRoom({ auction, userId, onBack, onBid, onExpire, onNotice
   const isSeller = userId === auction.sellerId
   const isActive = auction.status === 'ACTIVE' && !countdown.expired
   
-  const isFirstBid = auction.currentHighestBid === 0
-  const minRequiredBid = isFirstBid ? auction.startingPrice : auction.currentHighestBid + 1
+  const bidReferenceAmount = Math.max(auction.currentHighestBid, auction.startingPrice)
+  const minRequiredBid = bidReferenceAmount + 1
 
-  const remainingBidAmount = Math.max(0, maxAllowedBid - auction.currentHighestBid)
+  const remainingBidAmount = Math.max(0, maxAllowedBid - bidReferenceAmount)
   const standardIncrements = [5, 10, 20].filter((increment) => increment <= remainingBidAmount)
   const bidIncrements = standardIncrements.length > 0 ? standardIncrements : remainingBidAmount > 0 ? [remainingBidAmount] : []
   const primaryBidIncrement = [20, 10, 5].find((increment) => increment <= remainingBidAmount) ?? remainingBidAmount
 
-  // Default target bid when custom input is empty
-  const defaultNextBid = isFirstBid ? auction.startingPrice : auction.currentHighestBid + primaryBidIncrement
+  const defaultNextBid = bidReferenceAmount + primaryBidIncrement
 
-  // Parse and sanitize custom bid input
-  const cleanCustomBid = sanitizeCustomBidInput(customBid)
-  const parsedCustomBid = cleanCustomBid === '' ? Number.NaN : Number(cleanCustomBid)
-  const hasCustomInput = customBid.trim() !== '' && cleanCustomBid !== '' && Number.isFinite(parsedCustomBid)
+  const hasCustomInput = customBid.trim() !== ''
+  const customInputIsNumeric = /^(?:\d+\.?\d*|\.\d+)$/.test(customBid.trim())
+  const parsedCustomLocal = customInputIsNumeric ? Number(customBid) : Number.NaN
+  const parsedCustomBid = Number.isFinite(parsedCustomLocal) ? toUsd(parsedCustomLocal) ?? Number.NaN : Number.NaN
 
-  // Use custom bid value if present, otherwise fall back to default increment
   const targetBidAmount = hasCustomInput ? parsedCustomBid : defaultNextBid
 
-  // Validation rules
-  const isTooLow = hasCustomInput && parsedCustomBid < minRequiredBid
-  const isTooHigh = hasCustomInput && parsedCustomBid > maxAllowedBid
-  const isValidBid = Number.isFinite(targetBidAmount) && targetBidAmount >= minRequiredBid && targetBidAmount <= maxAllowedBid && !(hasCustomInput && isTooLow) && !(hasCustomInput && isTooHigh)
+  const isTooLow = hasCustomInput && Number.isFinite(parsedCustomBid) && parsedCustomBid < minRequiredBid
+  const isTooHigh = hasCustomInput && Number.isFinite(parsedCustomBid) && parsedCustomBid > maxAllowedBid
+  const isValidBid = Number.isFinite(targetBidAmount) && targetBidAmount >= minRequiredBid && targetBidAmount <= maxAllowedBid
 
   // Reset custom bid input when highest bid updates live
   useEffect(() => {
@@ -102,7 +92,7 @@ export function AuctionRoom({ auction, userId, onBack, onBid, onExpire, onNotice
   }, [countdown.expired, auction.status, hasClosed, onExpire, onNotice, isSeller, auction.highestBidderId])
 
   const handlePlaceBid = async (amount: number) => {
-    if (amount < minRequiredBid) {
+    if (!Number.isFinite(amount) || amount < minRequiredBid) {
       onNotice(`Bid must be at least ${currency.format(minRequiredBid)}`, 'error')
       return
     }
@@ -127,9 +117,6 @@ export function AuctionRoom({ auction, userId, onBack, onBid, onExpire, onNotice
     if (isSeller) return 'Sellers can’t bid here'
     if (bidding) return 'Placing bid…'
     if (!isActive) return 'Auction ended'
-    if (hasCustomInput) {
-      return `Bid ${currency.format(parsedCustomBid)}`
-    }
     return `Bid ${currency.format(defaultNextBid)}`
   }
 
@@ -209,13 +196,14 @@ export function AuctionRoom({ auction, userId, onBack, onBid, onExpire, onNotice
             {/* Quick Increment Buttons */}
             <div className="mt-4 grid grid-cols-3 gap-1.5 sm:gap-2">
               {bidIncrements.map((increment) => {
-                const targetAmount = auction.currentHighestBid + increment
+                const targetAmount = bidReferenceAmount + increment
+                const targetLocalAmount = fromUsd(targetAmount)
                 return (
                   <Button 
                     key={increment} 
                     variant="secondary" 
-                    disabled={!isActive || bidding || isSeller} 
-                    onClick={() => setCustomBid(String(targetAmount))} 
+                    disabled={!isActive || bidding || isSeller || targetLocalAmount === null} 
+                    onClick={() => { if (targetLocalAmount !== null) setCustomBid(String(targetLocalAmount)) }} 
                     className="min-h-11 w-full min-w-0 flex-col justify-center gap-0.5 overflow-hidden rounded-xl px-1 py-1 text-center"
                   >
                     <span className="w-full truncate text-xs font-bold tracking-tight sm:text-sm">
@@ -233,7 +221,7 @@ export function AuctionRoom({ auction, userId, onBack, onBid, onExpire, onNotice
             <div className="mt-3">
               <label htmlFor="custom-bid-input" className="sr-only">Custom Bid Amount</label>
               <div className="relative flex items-center">
-                <span className="pointer-events-none absolute left-3 text-sm font-semibold text-[#829089]">$</span>
+                <span className="pointer-events-none absolute left-3 text-xs font-semibold text-[#829089]">{displayCurrency}</span>
                 <input
                   id="custom-bid-input"
                   type="text"
@@ -241,10 +229,15 @@ export function AuctionRoom({ auction, userId, onBack, onBid, onExpire, onNotice
                   placeholder={`Custom amount (min ${currency.format(minRequiredBid)})`}
                   value={customBid}
                   disabled={!isActive || bidding || isSeller}
-                  onChange={(e) => setCustomBid(sanitizeCustomBidInput(e.target.value))}
-                  className="w-full rounded-xl border border-[#dce3de] bg-[#f9faf9] py-2.5 pl-7 pr-3 text-sm font-semibold text-[#1c2b26] placeholder-[#909c95] outline-none transition focus:border-[#5b8a71] focus:bg-white focus:ring-1 focus:ring-[#5b8a71] disabled:cursor-not-allowed disabled:opacity-60"
+                  onChange={(e) => setCustomBid(e.target.value)}
+                  className="w-full rounded-xl border border-[#dce3de] bg-[#f9faf9] py-2.5 pl-14 pr-3 text-sm font-semibold text-[#1c2b26] placeholder-[#909c95] outline-none transition focus:border-[#5b8a71] focus:bg-white focus:ring-1 focus:ring-[#5b8a71] disabled:cursor-not-allowed disabled:opacity-60"
                 />
               </div>
+              {hasCustomInput && !Number.isFinite(parsedCustomBid) && (
+                <p className="mt-1 text-[11px] font-medium text-[#c7473c]">
+                  {customInputIsNumeric && displayCurrency !== 'USD' && !ratesReady ? 'Currency conversion is unavailable. Try again when rates load.' : 'Enter a valid amount.'}
+                </p>
+              )}
               {hasCustomInput && isTooLow && (
                 <p className="mt-1 text-[11px] font-medium text-[#c7473c]">
                   Minimum bid is {currency.format(minRequiredBid)}
@@ -270,7 +263,7 @@ export function AuctionRoom({ auction, userId, onBack, onBid, onExpire, onNotice
                     {hasCustomInput ? 'Custom bid' : 'Place bid'}
                   </span>
                   <span className="text-base font-bold tabular-nums">
-                    {currency.format(targetBidAmount)}
+                    {Number.isFinite(targetBidAmount) ? currency.format(targetBidAmount) : 'Enter valid amount'}
                   </span>
                 </span>
               )}

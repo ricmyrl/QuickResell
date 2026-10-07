@@ -142,7 +142,7 @@ function answerLocally(text: string, auctions: Auction[], listings: MarketplaceL
     if (auctionMatches.length > 1 && !normalized.includes(matchedAuction.title.toLowerCase())) {
       return { text: 'I found several live auctions. Choose the exact item first, then I can prepare its price rule.', intent: 'bid_rule', actions: auctionMatches.slice(0, 3).map((auction) => ({ label: auction.title, kind: 'auction' as const, auctionId: auction.id })) }
     }
-    if (maximum > matchedAuction.currentHighestBid && step > 0 && step <= maximum) {
+    if (maximum > Math.max(matchedAuction.currentHighestBid, matchedAuction.startingPrice) && step > 0 && step <= maximum) {
       return {
         text: `I can prepare a rule for “${matchedAuction.title}”: maximum ${currency(maximum)}, step ${currency(step)}. I will not bid until you review the rule, enable Scout, and confirm authorization on the Watchlist screen.`,
         intent: 'bid_rule',
