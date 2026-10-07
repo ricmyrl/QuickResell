@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { BadgeCheck, Camera, CircleAlert, Fingerprint, LoaderCircle, LockKeyhole, ShieldCheck } from 'lucide-react'
 import {
@@ -66,6 +66,9 @@ export function SellerVerificationPage({ session, emailConfirmed, onRequestSignI
   const [verification, setVerification] = useState<SellerVerification | null>(null)
   const [verificationProvider, setVerificationProvider] = useState<SellerVerificationProvider>('paystack')
   const [banks, setBanks] = useState<SellerBank[]>([])
+  const [banksLoading, setBanksLoading] = useState(true)
+  const [bankLoadError, setBankLoadError] = useState('')
+  const bankRequestId = useRef(0)
   const [bankCode, setBankCode] = useState('')
   const [accountNumber, setAccountNumber] = useState('')
   const [consent, setConsent] = useState(false)
@@ -77,6 +80,13 @@ export function SellerVerificationPage({ session, emailConfirmed, onRequestSignI
   const [identityBusy, setIdentityBusy] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const [fieldErrors, setFieldErrors] = useState<{
+    legalName?: string
+    idNumber?: string
+    bankCode?: string
+    accountNumber?: string
+    consent?: string
+  }>({})
 
   const refreshVerification = useCallback(async () => {
     if (!session || !emailConfirmed) return
@@ -88,16 +98,34 @@ export function SellerVerificationPage({ session, emailConfirmed, onRequestSignI
     setVerificationProvider(provider)
   }, [session, emailConfirmed])
 
+  const loadBanks = useCallback(async () => {
+    if (!session) return
+    const requestId = ++bankRequestId.current
+    setBanksLoading(true)
+    setBankLoadError('')
+    try {
+      const bankList = await getSellerBanks(session)
+      if (bankRequestId.current !== requestId) return
+      setBanks(bankList)
+      if (bankList.length === 0) setBankLoadError('Paystack returned no available Nigerian banks. Please retry.')
+    } catch (caught: unknown) {
+      if (bankRequestId.current !== requestId) return
+      setBankLoadError(caught instanceof Error ? caught.message : 'Banks could not be loaded.')
+    } finally {
+      if (bankRequestId.current === requestId) setBanksLoading(false)
+    }
+  }, [session])
+
   useEffect(() => {
     let cancelled = false
     if (!session || !emailConfirmed) {
       setLoading(false)
+      setBanksLoading(false)
       return
     }
-    void Promise.all([getSellerVerification(session), getSellerBanks(session), getSellerVerificationProvider(session)]).then(([status, bankList, provider]) => {
+    void Promise.all([getSellerVerification(session), getSellerVerificationProvider(session)]).then(([status, provider]) => {
       if (cancelled) return
       setVerification(status)
-      setBanks(bankList)
       setVerificationProvider(provider)
     }).catch((caught: unknown) => {
       if (!cancelled) setError(caught instanceof Error ? caught.message : 'Seller verification could not be loaded.')
@@ -106,6 +134,12 @@ export function SellerVerificationPage({ session, emailConfirmed, onRequestSignI
     })
     return () => { cancelled = true }
   }, [session, emailConfirmed])
+
+  useEffect(() => {
+    if (!session || !emailConfirmed) return
+    void loadBanks()
+    return () => { bankRequestId.current += 1 }
+  }, [session, emailConfirmed, loadBanks])
 
   useEffect(() => {
     if (verification?.identityStatus !== 'PENDING') return
@@ -134,9 +168,17 @@ export function SellerVerificationPage({ session, emailConfirmed, onRequestSignI
       setError('Confirm your email before verifying your seller account.')
       return
     }
-    if (!consent || identityBusy) return
-    if (paystackProvider && missingPaystackFields.length) {
-      setError(`Complete these fields before verifying: ${missingPaystackFields.join(', ')}.`)
+    if (identityBusy) return
+    const nextFieldErrors: typeof fieldErrors = {}
+    if (!consent) nextFieldErrors.consent = 'Consent is required to continue.'
+    if (paystackProvider) {
+      if (!paystackLegalName) nextFieldErrors.legalName = 'Enter your legal name.'
+      if (manualIdNumber.length !== 11) nextFieldErrors.idNumber = `Enter your 11-digit ${manualIdType}.`
+      if (!bankCode) nextFieldErrors.bankCode = 'Select your bank.'
+      if (accountNumber.length !== 10) nextFieldErrors.accountNumber = 'Enter a valid 10-digit account number.'
+    }
+    setFieldErrors(nextFieldErrors)
+    if (Object.keys(nextFieldErrors).length) {
       return
     }
     setIdentityBusy(true)
@@ -207,7 +249,20 @@ export function SellerVerificationPage({ session, emailConfirmed, onRequestSignI
       })
     } catch (caught) {
       if (reference) void cancelSellerIdentityVerification(reference, session).catch(() => undefined)
-      setError(caught instanceof Error ? caught.message : 'Identity verification could not be started.')
+      const message = caught instanceof Error ? caught.message : 'Identity verification could not be started.'
+      if (paystackProvider && /account holder name does not match/i.test(message)) {
+        setFieldErrors({
+          legalName: 'This name does not match the payout account holder name.',
+          accountNumber: 'Check that this is your own bank account.',
+        })
+      } else if (paystackProvider && /could not validate this (NIN|BVN) and bank account/i.test(message)) {
+        setFieldErrors({
+          idNumber: `Paystack could not validate this ${manualIdType}. Check the number.`,
+          accountNumber: 'Paystack could not validate this account with the supplied identity details.',
+        })
+      } else {
+        setError(message)
+      }
       setIdentityBusy(false)
     }
   }
@@ -222,13 +277,6 @@ export function SellerVerificationPage({ session, emailConfirmed, onRequestSignI
   const paystackProvider = manualPaystackFlow || verificationProvider === 'paystack'
   const paystackLegalName = manualLegalName.trim() ||
     (typeof session.user.user_metadata?.full_name === 'string' ? session.user.user_metadata.full_name.trim() : '')
-  const missingPaystackFields = [
-    !paystackLegalName && 'legal name',
-    manualIdNumber.length !== 11 && `11-digit ${manualIdType}`,
-    !bankCode && 'bank',
-    accountNumber.length !== 10 && '10-digit bank account number',
-  ].filter((field): field is string => Boolean(field))
-
   return <section className="mx-auto w-full max-w-3xl pb-8">
     <header className="mb-6">
       <p className="mb-2 text-xs font-bold uppercase tracking-[.13em] text-[#698572]">Seller onboarding · Nigeria</p>
@@ -252,26 +300,41 @@ export function SellerVerificationPage({ session, emailConfirmed, onRequestSignI
               }} className="mt-4 space-y-4">
                 <div className="rounded-xl bg-[#f7f9f7] p-3.5 text-xs leading-5 text-[#66766e]"><p>{paystackProvider ? 'Paystack validates the NIN or BVN together with the legal name and Nigerian payout account. QuickResell does not store the identity number.' : 'Smile ID verifies your identity and liveness. You can add your payout bank account after the identity check.'}</p>{!paystackProvider && <a href="https://usesmileid.com/privacy" target="_blank" rel="noreferrer" className="mt-2 inline-block font-semibold text-[#41694d] underline">Smile ID privacy information</a>}</div>
                 {paystackProvider && <div className="grid gap-3 sm:grid-cols-[1.2fr_0.8fr]">
-                  <label className="block text-xs font-semibold text-[#52645a]"><span className="mb-1.5 block">Legal name</span><input type="text" value={manualLegalName} onChange={(event) => setManualLegalName(event.target.value)} placeholder="Full legal name" className="h-11 w-full rounded-xl border border-[#dfe7e1] bg-white px-3 text-sm text-[#273a30] outline-none focus:border-[#86a995]" /></label>
-                  <label className="block text-xs font-semibold text-[#52645a]"><span className="mb-1.5 block">ID type</span><select value={manualIdType} onChange={(event) => setManualIdType(event.target.value as 'NIN' | 'BVN')} className="h-11 w-full rounded-xl border border-[#dfe7e1] bg-white px-3 text-sm text-[#273a30] outline-none focus:border-[#86a995]">
+                  <label className="block text-xs font-semibold text-[#52645a]"><span className="mb-1.5 block">Legal name</span><input type="text" value={manualLegalName} onChange={(event) => {
+                    setManualLegalName(event.target.value)
+                    setFieldErrors((current) => ({ ...current, legalName: undefined }))
+                  }} aria-invalid={Boolean(fieldErrors.legalName)} placeholder="Full legal name" className="h-11 w-full rounded-xl border border-[#dfe7e1] bg-white px-3 text-sm text-[#273a30] outline-none focus:border-[#86a995]" />{fieldErrors.legalName && <span role="alert" className="mt-1 block text-xs font-medium text-[#a34237]">{fieldErrors.legalName}</span>}</label>
+                  <label className="block text-xs font-semibold text-[#52645a]"><span className="mb-1.5 block">ID type</span><select value={manualIdType} onChange={(event) => {
+                    setManualIdType(event.target.value as 'NIN' | 'BVN')
+                    setFieldErrors((current) => ({ ...current, idNumber: undefined }))
+                  }} className="h-11 w-full rounded-xl border border-[#dfe7e1] bg-white px-3 text-sm text-[#273a30] outline-none focus:border-[#86a995]">
                     <option value="NIN">NIN</option>
                     <option value="BVN">BVN</option>
                   </select></label>
                 </div>}
                 {paystackProvider && <>
-                  <label className="block text-xs font-semibold text-[#52645a]"><span className="mb-1.5 block">{manualIdType} number</span><input type="text" inputMode="numeric" autoComplete="off" maxLength={11} pattern="[0-9]{11}" value={manualIdNumber} onChange={(event) => setManualIdNumber(event.target.value.replace(/\D/g, '').slice(0, 11))} placeholder="11-digit number" className="h-11 w-full rounded-xl border border-[#dfe7e1] bg-white px-3 text-sm text-[#273a30] outline-none focus:border-[#86a995]" /></label>
+                  <label className="block text-xs font-semibold text-[#52645a]"><span className="mb-1.5 block">{manualIdType} number</span><input type="text" inputMode="numeric" autoComplete="off" maxLength={11} pattern="[0-9]{11}" value={manualIdNumber} onChange={(event) => {
+                    setManualIdNumber(event.target.value.replace(/\D/g, '').slice(0, 11))
+                    setFieldErrors((current) => ({ ...current, idNumber: undefined }))
+                  }} aria-invalid={Boolean(fieldErrors.idNumber)} placeholder="11-digit number" className="h-11 w-full rounded-xl border border-[#dfe7e1] bg-white px-3 text-sm text-[#273a30] outline-none focus:border-[#86a995]" />{fieldErrors.idNumber && <span role="alert" className="mt-1 block text-xs font-medium text-[#a34237]">{fieldErrors.idNumber}</span>}</label>
                   <div className="grid gap-3 sm:grid-cols-2">
-                  <label className="block text-xs font-semibold text-[#52645a]"><span className="mb-1.5 block">Payout bank</span><select value={bankCode} onChange={(event) => setBankCode(event.target.value)} disabled={banks.length === 0 || identityBusy} required={paystackProvider} className="h-11 w-full rounded-xl border border-[#dfe7e1] bg-white px-3 text-sm text-[#273a30] outline-none focus:border-[#86a995] disabled:bg-[#f4f6f4]"><option value="">{banks.length ? 'Choose your bank' : 'Loading banks…'}</option>{banks.map((bank) => <option key={bank.code} value={bank.code}>{bank.name}</option>)}</select></label>
-                  <label className="block text-xs font-semibold text-[#52645a]"><span className="mb-1.5 block">Payout account number</span><input type="text" inputMode="numeric" autoComplete="off" minLength={10} maxLength={10} pattern="[0-9]{10}" value={accountNumber} onChange={(event) => {
+                    <label className="block text-xs font-semibold text-[#52645a]"><span className="mb-1.5 block">Payout bank</span><select value={bankCode} onChange={(event) => {
+                      setBankCode(event.target.value)
+                      setFieldErrors((current) => ({ ...current, bankCode: undefined }))
+                    }} aria-invalid={Boolean(fieldErrors.bankCode)} disabled={banksLoading || banks.length === 0 || identityBusy} required={paystackProvider} className="h-11 w-full rounded-xl border border-[#dfe7e1] bg-white px-3 text-sm text-[#273a30] outline-none focus:border-[#86a995] disabled:bg-[#f4f6f4]"><option value="">{banks.length ? 'Choose your bank' : banksLoading ? 'Loading banks…' : 'Banks unavailable'}</option>{banks.map((bank) => <option key={bank.code} value={bank.code}>{bank.name}</option>)}</select>{fieldErrors.bankCode && <span role="alert" className="mt-1 block text-xs font-medium text-[#a34237]">{fieldErrors.bankCode}</span>}{bankLoadError && <span role="alert" className="mt-1 block text-xs font-medium text-[#a34237]">{bankLoadError} <button type="button" onClick={() => void loadBanks()} className="font-semibold underline">Retry</button></span>}</label>
+                    <label className="block text-xs font-semibold text-[#52645a]"><span className="mb-1.5 block">Payout account number</span><input type="text" inputMode="numeric" autoComplete="off" minLength={10} maxLength={10} pattern="[0-9]{10}" value={accountNumber} onChange={(event) => {
                     const nextValue = event.target.value.replace(/\D/g, '').slice(0, 10)
                     setAccountNumber(nextValue)
-                  }} disabled={identityBusy} required={paystackProvider} placeholder="10 digits" className="h-11 w-full rounded-xl border border-[#dfe7e1] bg-white px-3 text-sm text-[#273a30] outline-none focus:border-[#86a995] disabled:bg-[#f4f6f4]" /></label>
-                </div>
+                    setFieldErrors((current) => ({ ...current, accountNumber: undefined }))
+                  }} aria-invalid={Boolean(fieldErrors.accountNumber)} disabled={identityBusy} required={paystackProvider} placeholder="10 digits" className="h-11 w-full rounded-xl border border-[#dfe7e1] bg-white px-3 text-sm text-[#273a30] outline-none focus:border-[#86a995] disabled:bg-[#f4f6f4]" />{fieldErrors.accountNumber && <span role="alert" className="mt-1 block text-xs font-medium text-[#a34237]">{fieldErrors.accountNumber}</span>}</label>
+                  </div>
                 </>}
                 {paystackProvider && <p className="text-xs leading-5 text-[#718078]">Enter your legal name, 11-digit NIN or BVN, bank, and 10-digit account number, then submit once to verify your identity and payout account.</p>}
-                <label className="flex items-start gap-2.5 text-xs leading-5 text-[#5e6f64]"><input type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)} className="mt-1 size-4 accent-[#315f49]" /><span>I consent to QuickResell processing my identity details for seller verification and matching them against the payout account holder name.</span></label>
-                {paystackProvider && missingPaystackFields.length > 0 && <p className="text-xs leading-5 text-[#8a642d]">Still needed: {missingPaystackFields.join(', ')}.</p>}
-                <Button type="submit" disabled={!consent || identityBusy || loading} icon={identityBusy ? <LoaderCircle size={16} className="animate-spin" /> : <Camera size={16} />}>{identityBusy ? 'Verifying…' : paystackProvider ? 'Verify identity and payout account' : 'Start identity verification'}</Button>
+                <label className="flex items-start gap-2.5 text-xs leading-5 text-[#5e6f64]"><input type="checkbox" checked={consent} onChange={(event) => {
+                  setConsent(event.target.checked)
+                  setFieldErrors((current) => ({ ...current, consent: undefined }))
+                }} className="mt-1 size-4 accent-[#315f49]" /><span>I consent to QuickResell processing my identity details for seller verification and matching them against the payout account holder name.{fieldErrors.consent && <span role="alert" className="mt-1 block text-xs font-medium text-[#a34237]">{fieldErrors.consent}</span>}</span></label>
+                <Button type="submit" disabled={identityBusy || loading} icon={identityBusy ? <LoaderCircle size={16} className="animate-spin" /> : <Camera size={16} />}>{identityBusy ? 'Verifying…' : paystackProvider ? 'Verify identity and payout account' : 'Start identity verification'}</Button>
               </form>}
         {fullyVerified && verification?.bankName && <p className="mt-4 flex items-center gap-2 text-sm text-[#477358]"><BadgeCheck size={16} />{verification.bankName} · account ending {verification.bankAccountLast4}</p>}
       </section>
