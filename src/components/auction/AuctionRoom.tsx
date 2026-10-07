@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { ArrowLeft, ArrowUpRight, Clock3, Gavel, MapPin, ShieldCheck, Sparkles, Users } from 'lucide-react'
 import { motion } from 'framer-motion'
-import type { Auction, Bid } from '../../types'
+import type { Auction, AuctionWatchlistRule, Bid } from '../../types'
 import { useCountdown } from '../../hooks/useCountdown'
 import { useAuctionRealtime } from '../../hooks/useAuctionRealtime'
 import { LiveBadge, Badge } from '../common/Badge'
@@ -15,8 +15,8 @@ import { useCurrency } from '../../lib/CurrencyContext'
 
 const maxAllowedBid = 10_000_000
 
-export function AuctionRoom({ auction, userId, onBack, onBid, onExpire, onNotice, onRoomUpdate, onVerdict }: {
-  auction: Auction; userId?: string; session: Session | null; emailConfirmed: boolean; onRequestSignIn: () => void; onBack: () => void; onBid: (amount: number) => Promise<void>; onExpire: () => Promise<void>
+export function AuctionRoom({ auction, userId, autoBidRule, onBack, onBid, onExpire, onNotice, onRoomUpdate, onVerdict }: {
+  auction: Auction; userId?: string; autoBidRule?: Pick<AuctionWatchlistRule, 'maxBid' | 'bidStep' | 'autoBidEnabled'>; session: Session | null; emailConfirmed: boolean; onRequestSignIn: () => void; onBack: () => void; onBid: (amount: number) => Promise<void>; onExpire: () => Promise<void>
   onNotice: (message: string, kind?: 'success' | 'error') => void; onRoomUpdate: (patch: Partial<Auction>) => void
   onVerdict: (decision: Verdict) => Promise<void>
 }) {
@@ -220,6 +220,26 @@ export function AuctionRoom({ auction, userId, onBack, onBid, onExpire, onNotice
                   </Button>
                 )
               })}
+            </div>
+
+            <div aria-label="Bidding floor values" className="mt-3 grid grid-cols-2 gap-2 rounded-xl border border-[#e5ebe6] bg-[#f8faf8] p-3 text-xs sm:grid-cols-3">
+              <div>
+                <p className="text-[10px] font-medium text-[#829089]">Minimum next bid</p>
+                <p className="mt-1 font-bold tabular-nums text-[#2b4539]">{currency.format(minRequiredBid)}</p>
+              </div>
+              <div>
+                <p className="text-[10px] font-medium text-[#829089]">Scout maximum</p>
+                <p className="mt-1 font-bold tabular-nums text-[#2b4539]">{autoBidRule ? currency.format(autoBidRule.maxBid) : 'Not set'}</p>
+              </div>
+              <div>
+                <p className="text-[10px] font-medium text-[#829089]">Auto-bid step</p>
+                <p className="mt-1 font-bold tabular-nums text-[#2b4539]">{autoBidRule ? currency.format(autoBidRule.bidStep) : 'Not set'}</p>
+              </div>
+              {autoBidRule && (
+                <p className={`col-span-2 text-[10px] font-semibold sm:col-span-3 ${autoBidRule.autoBidEnabled ? 'text-[#4d764d]' : 'text-[#87938b]'}`}>
+                  Scout auto-bid {autoBidRule.autoBidEnabled ? 'is active' : 'is paused'} for this auction.
+                </p>
+              )}
             </div>
 
             {/* Custom Bid Input Field */}

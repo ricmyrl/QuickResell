@@ -150,6 +150,7 @@ export function CurrencyProvider({ children }: { children: ReactNode }) {
       formatUsd: (amount, fractionDigits = 2) => new Intl.NumberFormat(locale, {
         style: 'currency',
         currency: activeCurrency,
+        currencyDisplay: activeCurrency === 'NGN' ? 'narrowSymbol' : 'symbol',
         minimumFractionDigits: fractionDigits,
         maximumFractionDigits: fractionDigits,
       }).format(amount * activeRate),
