@@ -270,6 +270,11 @@ export function SellerVerificationPage({ session, emailConfirmed, onRequestSignI
           idNumber: `The ${manualIdType} could not be matched to this account. Check the number.`,
           accountNumber: `The bank account is valid, but Paystack could not match it to this ${manualIdType}.`,
         })
+      } else if (paystackProvider && /rejected the identity validation request/i.test(message)) {
+        setFieldErrors({
+          idNumber: message,
+          accountNumber: 'The bank account and account-holder name were verified; Paystack rejected the identity check.',
+        })
       } else if (paystackProvider && /could not validate this (NIN|BVN) and bank account/i.test(message)) {
         setFieldErrors({
           idNumber: `Paystack could not validate this ${manualIdType}. Check the number.`,
