@@ -196,7 +196,9 @@ export function SellerVerificationPage({ session, emailConfirmed, onRequestSignI
           consent: true,
         }, session)
         setAccountNumber('')
-        setNotice(`${review.bankName} account ending ${review.accountLast4} and your identity were verified by Paystack.`)
+        setNotice(review.requiresManualReview
+          ? `${review.bankName} account ending ${review.accountLast4} was verified. Paystack does not support identity validation in Nigeria, so your identity is pending manual review.`
+          : `${review.bankName} account ending ${review.accountLast4} and your identity were verified by Paystack.`)
         await refreshVerification()
         setIdentityBusy(false)
         return
@@ -313,7 +315,7 @@ export function SellerVerificationPage({ session, emailConfirmed, onRequestSignI
         <div className="flex flex-wrap items-center justify-between gap-3"><div className="flex items-center gap-3"><span className="grid size-10 place-items-center rounded-xl bg-[#edf4ed] text-[#4c7758]"><Fingerprint size={19} /></span><div><h2 className="text-sm font-semibold text-[#2c4236]">Identity and payout verification</h2><p className="mt-0.5 text-xs text-[#829087]">{paystackProvider ? 'One Paystack form for your legal name, NIN or BVN, and bank account' : 'Verify your identity with Smile ID, then add your payout account'}</p></div></div><VerificationState status={identityStatus} /></div>
         {fullyVerified || (identityStatus === 'VERIFIED' && !paystackProvider) ? <p className="mt-4 flex items-center gap-2 text-sm text-[#477358]"><BadgeCheck size={16} />Identity verification is complete.</p>
           : identityStatus === 'PENDING' ? <p role="status" className="mt-4 flex items-center gap-2 text-sm text-[#85682f]"><LoaderCircle size={16} className="animate-spin" />Smile ID is reviewing your submission. This status refreshes automatically.</p>
-            : identityStatus === 'REVIEW_REQUIRED' ? <p className="mt-4 flex items-start gap-2 text-sm leading-5 text-[#8a642d]"><CircleAlert size={16} className="mt-0.5 shrink-0" />Your submission needs additional review. Contact QuickResell support to continue.</p>
+            : identityStatus === 'REVIEW_REQUIRED' ? <p className="mt-4 flex items-start gap-2 text-sm leading-5 text-[#8a642d]"><CircleAlert size={16} className="mt-0.5 shrink-0" />{verification?.failureCode === 'IDENTITY_MANUAL_REVIEW' ? 'Your payout account and account-holder name are verified. Paystack does not support identity verification in Nigeria, so contact QuickResell support to complete manual identity review.' : 'Your submission needs additional review. Contact QuickResell support to continue.'}</p>
               : <form onSubmit={(event) => {
                 event.preventDefault()
                 void startIdentityCheck()
