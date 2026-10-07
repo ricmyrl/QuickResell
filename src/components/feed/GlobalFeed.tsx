@@ -1,6 +1,6 @@
 import { motion } from 'framer-motion'
 import { ArrowDownUp, ArrowUpRight, Bookmark, BookmarkCheck, MapPin, SlidersHorizontal, Sparkles } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { Auction } from '../../types'
 import { useCountdown } from '../../hooks/useCountdown'
 import { Badge, LiveBadge } from '../common/Badge'
@@ -24,8 +24,21 @@ function AuctionCard({ auction, index, onOpen, watchlisted, saving, watchlistLoa
 export function GlobalFeed({ auctions, categories, watchlistIds, savingWatchlistId, watchlistLoading, currentUserId, onOpen, onToggleWatchlist }: { auctions: Auction[]; categories: string[]; watchlistIds: string[]; savingWatchlistId: string | null; watchlistLoading: boolean; currentUserId: string; onOpen: (auction: Auction) => void; onToggleWatchlist: (auction: Auction) => void; session?: unknown; emailConfirmed?: boolean; onRequestSignIn?: () => void }) {
   const [category, setCategory] = useState('For you')
   const [sort, setSort] = useState<'ending' | 'recent'>('ending')
+  const [now, setNow] = useState(() => Date.now())
   const categoryOptions = ['For you', 'All', ...categories]
-  const visible = useMemo(() => auctions.filter((auction) => auction.status === 'ACTIVE' && (category === 'For you' || category === 'All' || auction.category === category)).sort((a, b) => sort === 'ending' ? new Date(a.endsAt).getTime() - new Date(b.endsAt).getTime() : b.bids.length - a.bids.length), [auctions, category, sort])
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1_000)
+    return () => window.clearInterval(timer)
+  }, [])
+
+  const visible = useMemo(() => auctions
+    .filter((auction) => auction.status === 'ACTIVE'
+      && new Date(auction.endsAt).getTime() > now
+      && (category === 'For you' || category === 'All' || auction.category === category))
+    .sort((a, b) => sort === 'ending'
+      ? new Date(a.endsAt).getTime() - new Date(b.endsAt).getTime()
+      : b.bids.length - a.bids.length), [auctions, category, sort, now])
 
   return <section className="min-w-0"><div className="mb-6 flex items-end justify-between gap-3"><div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[.12em] text-[#628174]"><Sparkles size={14} />The campus edit</div><div className="flex items-center gap-2"><button type="button" className="hidden rounded-full border border-[#dce4de] bg-[#f3faf3] px-3 py-2 text-[10px] font-semibold uppercase tracking-[.12em] text-[#35614d] sm:inline-flex sm:items-center sm:gap-2"><Sparkles size={14} />Add bid</button><IconButton label={`Sort by ${sort === 'ending' ? 'most bids' : 'ending soon'}`} onClick={() => setSort((value) => value === 'ending' ? 'recent' : 'ending')} className="border border-[#dce4de] bg-white"><ArrowDownUp size={18} /></IconButton></div></div>
     <div className="scrollbar-hidden mb-5 flex items-center gap-2 overflow-x-auto pb-1">{categoryOptions.map((item) => <button key={item} type="button" onClick={() => setCategory(item)} className={`inline-flex w-max flex-none whitespace-nowrap rounded-full border px-3.5 py-2 text-xs font-semibold transition-colors ${category === item ? 'border-[#263b33] bg-[#263b33] text-white' : 'border-[#dce4de] bg-white text-[#73817a] hover:border-[#b9c8bd] hover:text-[#263b33]'}`}>{item}</button>)}<span className="ml-auto hidden items-center gap-1 text-[11px] text-[#89968f] sm:flex"><SlidersHorizontal size={14} />Sorted by {sort === 'ending' ? 'ending soon' : 'most bids'}</span></div>

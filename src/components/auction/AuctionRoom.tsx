@@ -31,6 +31,7 @@ export function AuctionRoom({ auction, userId, autoBidRule, onBack, onBid, onExp
   const [verdictOpen, setVerdictOpen] = useState(false)
   const [imageOpen, setImageOpen] = useState(false)
   const [revealedIncrement, setRevealedIncrement] = useState<number | null>(null)
+  const [highestBidRevealed, setHighestBidRevealed] = useState(false)
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const revealDismissTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -99,9 +100,21 @@ export function AuctionRoom({ auction, userId, autoBidRule, onBack, onBid, onExp
   const startIncrementLongPress = (increment: number) => {
     if (longPressTimer.current) clearTimeout(longPressTimer.current)
     if (revealDismissTimer.current) clearTimeout(revealDismissTimer.current)
+    setHighestBidRevealed(false)
     longPressTimer.current = setTimeout(() => {
       setRevealedIncrement(increment)
       revealDismissTimer.current = setTimeout(() => setRevealedIncrement(null), 2_000)
+      longPressTimer.current = null
+    }, 500)
+  }
+
+  const startHighestBidLongPress = () => {
+    if (longPressTimer.current) clearTimeout(longPressTimer.current)
+    if (revealDismissTimer.current) clearTimeout(revealDismissTimer.current)
+    setRevealedIncrement(null)
+    longPressTimer.current = setTimeout(() => {
+      setHighestBidRevealed(true)
+      revealDismissTimer.current = setTimeout(() => setHighestBidRevealed(false), 2_000)
       longPressTimer.current = null
     }, 500)
   }
@@ -209,12 +222,26 @@ export function AuctionRoom({ auction, userId, autoBidRule, onBack, onBid, onExp
             <div className="flex items-end justify-between gap-3">
               <div className="min-w-0 flex-1 flex-col gap-1 overflow-hidden">
                 <p className="text-xs font-medium text-[#829089]">Highest bid</p>
-                <p 
-                  className="font-display truncate text-2xl font-bold leading-none tracking-tight text-[#20352d] sm:text-3xl xl:text-[34px]"
-                  title={currency.format(auction.currentHighestBid)}
+                <div
+                  className="relative min-w-0"
+                  onPointerDown={startHighestBidLongPress}
+                  onPointerUp={cancelIncrementLongPress}
+                  onPointerLeave={cancelIncrementLongPress}
+                  onPointerCancel={cancelIncrementLongPress}
+                  onContextMenu={(event) => event.preventDefault()}
                 >
-                  {currency.format(auction.currentHighestBid)}
-                </p>
+                  {highestBidRevealed && (
+                    <span role="status" className="pointer-events-none absolute bottom-full left-0 z-20 mb-2 whitespace-nowrap rounded-lg bg-[#20352d] px-3 py-2 text-xs font-semibold text-white shadow-lg">
+                      {currency.format(auction.currentHighestBid)}
+                    </span>
+                  )}
+                  <p
+                    className="truncate font-display text-2xl font-bold leading-none tracking-tight text-[#20352d] sm:text-3xl xl:text-[34px]"
+                    title={currency.format(auction.currentHighestBid)}
+                  >
+                    {currency.format(auction.currentHighestBid)}
+                  </p>
+                </div>
               </div>
               <div className={`mb-0.5 flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-2 text-sm font-bold tabular-nums ${countdown.remaining < 60_000 ? 'bg-[#fff0ed] text-[#c7473c]' : 'bg-[#f0f4ee] text-[#425b4d]'}`}>
                 <Clock3 size={15} />{clock}
