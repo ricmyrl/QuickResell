@@ -255,6 +255,21 @@ export function SellerVerificationPage({ session, emailConfirmed, onRequestSignI
           legalName: 'This name does not match the payout account holder name.',
           accountNumber: 'Check that this is your own bank account.',
         })
+      } else if (paystackProvider && /bank account could not be verified for the selected bank/i.test(message)) {
+        setFieldErrors({
+          bankCode: 'Check that you selected the correct bank.',
+          accountNumber: 'This account number could not be found at the selected bank.',
+        })
+      } else if (paystackProvider && /account-holder name does not match the legal name/i.test(message)) {
+        setFieldErrors({
+          legalName: 'This does not match the account holder name registered with the bank.',
+          accountNumber: 'Check that this is your own bank account.',
+        })
+      } else if (paystackProvider && /could not match this (NIN|BVN) to the account/i.test(message)) {
+        setFieldErrors({
+          idNumber: `The ${manualIdType} could not be matched to this account. Check the number.`,
+          accountNumber: `The bank account is valid, but Paystack could not match it to this ${manualIdType}.`,
+        })
       } else if (paystackProvider && /could not validate this (NIN|BVN) and bank account/i.test(message)) {
         setFieldErrors({
           idNumber: `Paystack could not validate this ${manualIdType}. Check the number.`,
