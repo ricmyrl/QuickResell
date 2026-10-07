@@ -30,6 +30,9 @@ export function AuctionRoom({ auction, userId, autoBidRule, onBack, onBid, onExp
   const [hasClosed, setHasClosed] = useState(false)
   const [verdictOpen, setVerdictOpen] = useState(false)
   const [imageOpen, setImageOpen] = useState(false)
+  const [revealedIncrement, setRevealedIncrement] = useState<number | null>(null)
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const revealDismissTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Custom Bid state
   const [customBid, setCustomBid] = useState<string>('')
@@ -87,6 +90,28 @@ export function AuctionRoom({ auction, userId, autoBidRule, onBack, onBid, onExp
     setBids((current) => [bid, ...current].slice(0, 50))
   }
   useAuctionRealtime(auction.id, onRoomUpdate, addLiveBid)
+
+  useEffect(() => () => {
+    if (longPressTimer.current) clearTimeout(longPressTimer.current)
+    if (revealDismissTimer.current) clearTimeout(revealDismissTimer.current)
+  }, [])
+
+  const startIncrementLongPress = (increment: number) => {
+    if (longPressTimer.current) clearTimeout(longPressTimer.current)
+    if (revealDismissTimer.current) clearTimeout(revealDismissTimer.current)
+    longPressTimer.current = setTimeout(() => {
+      setRevealedIncrement(increment)
+      revealDismissTimer.current = setTimeout(() => setRevealedIncrement(null), 2_000)
+      longPressTimer.current = null
+    }, 500)
+  }
+
+  const cancelIncrementLongPress = () => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current)
+      longPressTimer.current = null
+    }
+  }
 
   useEffect(() => {
     if (!countdown.expired || auction.status !== 'ACTIVE' || hasClosed) return
@@ -204,20 +229,32 @@ export function AuctionRoom({ auction, userId, autoBidRule, onBack, onBid, onExp
                 const targetAmount = bidReferenceAmount + increment
                 const targetLocalAmount = fromUsd(targetAmount)
                 return (
-                  <Button 
-                    key={increment} 
-                    variant="secondary" 
-                    disabled={!isActive || bidding || isSeller || targetLocalAmount === null} 
-                    onClick={() => { if (targetLocalAmount !== null) setCustomBid(String(targetLocalAmount)) }} 
-                    className="min-h-11 w-full min-w-0 flex-col justify-center gap-0.5 overflow-hidden rounded-xl px-1 py-1 text-center"
-                  >
-                    <span className="w-full truncate text-xs font-bold tracking-tight sm:text-sm">
-                      +{currency.format(increment)}
-                    </span>
-                    <span className="w-full truncate text-[9px] font-medium tracking-tight text-[#8a9690] sm:text-[10px]">
-                      {currency.format(targetAmount)}
-                    </span>
-                  </Button>
+                  <div key={increment} className="relative min-w-0">
+                    {revealedIncrement === increment && (
+                      <span role="status" className="pointer-events-none absolute bottom-full left-1/2 z-20 mb-2 -translate-x-1/2 whitespace-nowrap rounded-lg bg-[#20352d] px-3 py-2 text-xs font-semibold text-white shadow-lg">
+                        +{currency.format(increment)}
+                      </span>
+                    )}
+                    <Button
+                      variant="secondary"
+                      disabled={!isActive || bidding || isSeller || targetLocalAmount === null}
+                      onClick={() => { if (targetLocalAmount !== null) setCustomBid(String(targetLocalAmount)) }}
+                      onPointerDown={() => startIncrementLongPress(increment)}
+                      onPointerUp={cancelIncrementLongPress}
+                      onPointerLeave={cancelIncrementLongPress}
+                      onPointerCancel={cancelIncrementLongPress}
+                      onContextMenu={(event) => event.preventDefault()}
+                      aria-label={`Increase bid by ${currency.format(increment)} to ${currency.format(targetAmount)}`}
+                      className="min-h-11 w-full min-w-0 flex-col justify-center gap-0.5 overflow-hidden rounded-xl px-1 py-1 text-center"
+                    >
+                      <span className="w-full truncate text-xs font-bold tracking-tight sm:text-sm">
+                        +{currency.format(increment)}
+                      </span>
+                      <span className="w-full truncate text-[9px] font-medium tracking-tight text-[#8a9690] sm:text-[10px]">
+                        {currency.format(targetAmount)}
+                      </span>
+                    </Button>
+                  </div>
                 )
               })}
             </div>
