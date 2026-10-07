@@ -50,9 +50,12 @@ export function AuctionRoom({ auction, userId, onBack, onBid, onExpire, onNotice
   // Default target bid when custom input is empty
   const defaultNextBid = isFirstBid ? auction.startingPrice : auction.currentHighestBid + primaryBidIncrement
 
-  // Parse custom bid input
-  const parsedCustomBid = parseFloat(customBid)
+  // Parse and sanitize custom bid input
+  const cleanCustomBid = customBid.replace(/[^0-9.]/g, '')
+  const parsedCustomBid = parseFloat(cleanCustomBid)
   const hasCustomInput = customBid.trim() !== '' && !isNaN(parsedCustomBid)
+  
+  // Use custom bid value if present, otherwise fall back to default increment
   const targetBidAmount = hasCustomInput ? parsedCustomBid : defaultNextBid
 
   // Validation rules
@@ -60,7 +63,7 @@ export function AuctionRoom({ auction, userId, onBack, onBid, onExpire, onNotice
   const isTooHigh = hasCustomInput && parsedCustomBid > maxAllowedBid
   const isValidBid = !isTooLow && !isTooHigh && targetBidAmount >= minRequiredBid
 
-  // Reset custom bid only when highest bid actually changes
+  // Reset custom bid input when highest bid updates live
   useEffect(() => {
     if (auction.currentHighestBid !== prevHighestBidRef.current) {
       prevHighestBidRef.current = auction.currentHighestBid
@@ -115,9 +118,10 @@ export function AuctionRoom({ auction, userId, onBack, onBid, onExpire, onNotice
     if (isSeller) return 'Sellers can’t bid here'
     if (bidding) return 'Placing bid…'
     if (!isActive) return 'Auction ended'
-    if (isTooLow) return `Min bid is ${currency.format(minRequiredBid)}`
-    if (isTooHigh) return `Max bid is ${currency.format(maxAllowedBid)}`
-    return `Bid ${currency.format(targetBidAmount)}`
+    if (hasCustomInput) {
+      return `Bid ${currency.format(parsedCustomBid)}`
+    }
+    return `Bid ${currency.format(defaultNextBid)}`
   }
 
   const clock = countdown.days > 0 ? `${countdown.days}d ${String(countdown.hours).padStart(2, '0')}h` : `${String(countdown.hours).padStart(2, '0')}:${String(countdown.minutes).padStart(2, '0')}:${String(countdown.seconds).padStart(2, '0')}`
@@ -223,10 +227,8 @@ export function AuctionRoom({ auction, userId, onBack, onBid, onExpire, onNotice
                 <span className="pointer-events-none absolute left-3 text-sm font-semibold text-[#829089]">$</span>
                 <input
                   id="custom-bid-input"
-                  type="number"
-                  min={minRequiredBid}
-                  max={maxAllowedBid}
-                  step="any"
+                  type="text"
+                  inputMode="decimal"
                   placeholder={`Custom amount (min ${currency.format(minRequiredBid)})`}
                   value={customBid}
                   disabled={!isActive || bidding || isSeller}
