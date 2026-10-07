@@ -80,7 +80,7 @@ function SellerStudio({ auctions, userId, trustScore, completedAuctions, session
     void getSellerVerification(session).then((verification) => {
       if (!cancelled) {
         const identityApproved = verification?.identityStatus === 'VERIFIED' ||
-          (verification?.identityStatus === 'REVIEW_REQUIRED' && verification.failureCode === 'IDENTITY_MANUAL_REVIEW')
+          verification?.identityStatus === 'REVIEW_REQUIRED'
         setSellerVerificationComplete(identityApproved && verification?.payoutStatus === 'VERIFIED')
       }
     }).catch(() => {
