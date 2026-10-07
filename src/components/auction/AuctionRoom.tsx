@@ -15,6 +15,15 @@ import { useCurrency } from '../../lib/CurrencyContext'
 
 const maxAllowedBid = 10_000_000
 
+function sanitizeCustomBidInput(value: string): string {
+  const cleaned = value.replace(/[^0-9.]/g, '')
+  const [whole, ...parts] = cleaned.split('.')
+
+  if (!whole && parts.length === 0) return ''
+  const decimalPart = parts.length > 0 ? `.${parts.join('')}` : ''
+  return `${whole || '0'}${decimalPart}`
+}
+
 export function AuctionRoom({ auction, userId, onBack, onBid, onExpire, onNotice, onRoomUpdate, onVerdict }: {
   auction: Auction; userId?: string; session: Session | null; emailConfirmed: boolean; onRequestSignIn: () => void; onBack: () => void; onBid: (amount: number) => Promise<void>; onExpire: () => Promise<void>
   onNotice: (message: string, kind?: 'success' | 'error') => void; onRoomUpdate: (patch: Partial<Auction>) => void
@@ -51,17 +60,17 @@ export function AuctionRoom({ auction, userId, onBack, onBid, onExpire, onNotice
   const defaultNextBid = isFirstBid ? auction.startingPrice : auction.currentHighestBid + primaryBidIncrement
 
   // Parse and sanitize custom bid input
-  const cleanCustomBid = customBid.replace(/[^0-9.]/g, '')
-  const parsedCustomBid = parseFloat(cleanCustomBid)
-  const hasCustomInput = customBid.trim() !== '' && !isNaN(parsedCustomBid)
-  
+  const cleanCustomBid = sanitizeCustomBidInput(customBid)
+  const parsedCustomBid = cleanCustomBid === '' ? Number.NaN : Number(cleanCustomBid)
+  const hasCustomInput = customBid.trim() !== '' && cleanCustomBid !== '' && Number.isFinite(parsedCustomBid)
+
   // Use custom bid value if present, otherwise fall back to default increment
   const targetBidAmount = hasCustomInput ? parsedCustomBid : defaultNextBid
 
   // Validation rules
   const isTooLow = hasCustomInput && parsedCustomBid < minRequiredBid
   const isTooHigh = hasCustomInput && parsedCustomBid > maxAllowedBid
-  const isValidBid = !isTooLow && !isTooHigh && targetBidAmount >= minRequiredBid
+  const isValidBid = Number.isFinite(targetBidAmount) && targetBidAmount >= minRequiredBid && targetBidAmount <= maxAllowedBid && !(hasCustomInput && isTooLow) && !(hasCustomInput && isTooHigh)
 
   // Reset custom bid input when highest bid updates live
   useEffect(() => {
@@ -232,7 +241,7 @@ export function AuctionRoom({ auction, userId, onBack, onBid, onExpire, onNotice
                   placeholder={`Custom amount (min ${currency.format(minRequiredBid)})`}
                   value={customBid}
                   disabled={!isActive || bidding || isSeller}
-                  onChange={(e) => setCustomBid(e.target.value)}
+                  onChange={(e) => setCustomBid(sanitizeCustomBidInput(e.target.value))}
                   className="w-full rounded-xl border border-[#dce3de] bg-[#f9faf9] py-2.5 pl-7 pr-3 text-sm font-semibold text-[#1c2b26] placeholder-[#909c95] outline-none transition focus:border-[#5b8a71] focus:bg-white focus:ring-1 focus:ring-[#5b8a71] disabled:cursor-not-allowed disabled:opacity-60"
                 />
               </div>
