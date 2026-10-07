@@ -37,16 +37,24 @@ export function AuctionRoom({ auction, userId, onBack, onBid, onExpire, onNotice
   const isSeller = userId === auction.sellerId
   const isActive = auction.status === 'ACTIVE' && !countdown.expired
   
-  const minRequiredBid = auction.currentHighestBid > 0 
-    ? auction.currentHighestBid + 1 
-    : auction.startingPrice
+  const isFirstBid = auction.currentHighestBid === 0
+  const minRequiredBid = isFirstBid ? auction.startingPrice : auction.currentHighestBid + 1
 
   const remainingBidAmount = Math.max(0, maxAllowedBid - auction.currentHighestBid)
   const standardIncrements = [5, 10, 20].filter((increment) => increment <= remainingBidAmount)
   const bidIncrements = standardIncrements.length > 0 ? standardIncrements : remainingBidAmount > 0 ? [remainingBidAmount] : []
   const primaryBidIncrement = [20, 10, 5].find((increment) => increment <= remainingBidAmount) ?? remainingBidAmount
 
-  useEffect(() => { setBids(auction.bids); lastBidIds.current = new Set(auction.bids.map((bid) => bid.id)) }, [auction.id, auction.bids])
+  // Sync bids state when auction prop updates
+  useEffect(() => { 
+    setBids(auction.bids)
+    lastBidIds.current = new Set(auction.bids.map((bid) => bid.id)) 
+  }, [auction.id, auction.bids])
+
+  // Reset custom bid input when highest bid updates (from self or realtime outbids)
+  useEffect(() => {
+    setCustomBid('')
+  }, [auction.currentHighestBid])
 
   const addLiveBid = (bid: Bid) => {
     if (lastBidIds.current.has(bid.id)) return
@@ -88,7 +96,11 @@ export function AuctionRoom({ auction, userId, onBack, onBid, onExpire, onNotice
   // Determine effective target bid for the main submit button
   const parsedCustomBid = parseFloat(customBid)
   const hasCustomInput = !isNaN(parsedCustomBid) && customBid.trim() !== ''
-  const targetBidAmount = hasCustomInput ? parsedCustomBid : auction.currentHighestBid + primaryBidIncrement
+  const targetBidAmount = hasCustomInput 
+    ? parsedCustomBid 
+    : isFirstBid 
+      ? auction.startingPrice 
+      : auction.currentHighestBid + primaryBidIncrement
 
   const isCustomBidValid = hasCustomInput ? (parsedCustomBid >= minRequiredBid && parsedCustomBid <= maxAllowedBid) : true
 
@@ -174,9 +186,7 @@ export function AuctionRoom({ auction, userId, onBack, onBid, onExpire, onNotice
                     key={increment} 
                     variant="secondary" 
                     disabled={!isActive || bidding || isSeller} 
-                    onClick={() => {
-                      setCustomBid(String(targetAmount))
-                    }} 
+                    onClick={() => setCustomBid(String(targetAmount))} 
                     className="min-h-11 w-full min-w-0 flex-col justify-center gap-0.5 overflow-hidden rounded-xl px-1 py-1 text-center"
                   >
                     <span className="w-full truncate text-xs font-bold tracking-tight sm:text-sm">
@@ -219,7 +229,7 @@ export function AuctionRoom({ auction, userId, onBack, onBid, onExpire, onNotice
 
             {/* Main Submit Button */}
             <Button 
-              disabled={!isActive || bidding || isSeller || !isCustomBidValid || targetBidAmount <= auction.currentHighestBid} 
+              disabled={!isActive || bidding || isSeller || !isCustomBidValid || targetBidAmount < minRequiredBid} 
               onClick={() => void handlePlaceBid(targetBidAmount)} 
               icon={<Gavel size={15} />} 
               className="mt-2.5 w-full truncate rounded-xl py-3 text-sm font-bold"
@@ -228,7 +238,7 @@ export function AuctionRoom({ auction, userId, onBack, onBid, onExpire, onNotice
                 ? 'Sellers can’t bid here' 
                 : bidding 
                 ? 'Placing bid…' 
-                : targetBidAmount > auction.currentHighestBid 
+                : targetBidAmount >= minRequiredBid 
                 ? `Bid ${currency.format(targetBidAmount)}` 
                 : 'Enter a valid bid'}
             </Button>
