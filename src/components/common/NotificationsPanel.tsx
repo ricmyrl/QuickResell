@@ -26,15 +26,18 @@ export function NotificationsPanel({ open, notifications, onClose, onMarkAllRead
     <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-2">
       {notifications.length === 0
         ? <div className="rounded-xl bg-[#f7faf7] px-3 py-5 text-center text-xs text-[#7d8a84]">No notifications yet. New bids, order updates, and price changes will appear here.</div>
-        : <AnimatePresence initial={false}>{notifications.slice(0, 8).map((notification) => <motion.div key={notification.id} layout initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0, marginBottom: 0 }} className="relative mb-2 overflow-hidden rounded-xl bg-[#bd493e]">
-          <button type="button" aria-label={`Delete ${notification.title}`} onClick={() => onDelete(notification)} className="absolute inset-y-0 right-0 flex w-[88px] flex-col items-center justify-center gap-1 text-xs font-semibold text-white"><Trash2 size={17} />Delete</button>
+        : <AnimatePresence initial={false}>{notifications.slice(0, 8).map((notification) => <motion.div key={notification.id} layout initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ x: -120, opacity: 0, height: 0, marginBottom: 0 }} transition={{ layout: { type: 'spring', stiffness: 420, damping: 34 }, opacity: { duration: 0.18 }, height: { duration: 0.24 }, x: { type: 'spring', stiffness: 380, damping: 30 } }} className="relative mb-2 overflow-hidden rounded-xl bg-[#bd493e]">
+          <button type="button" aria-label={`Delete ${notification.title}`} onClick={() => onDelete(notification)} className="absolute inset-y-0 right-0 flex w-[112px] flex-col items-center justify-center gap-1 text-xs font-semibold text-white"><Trash2 size={17} />Delete</button>
           <motion.button
             type="button"
             drag="x"
-            dragConstraints={{ left: -88, right: 0 }}
-            dragElastic={0.08}
+            dragConstraints={{ left: -112, right: 0 }}
+            dragElastic={0.12}
+            dragMomentum={false}
+            dragTransition={{ bounceStiffness: 420, bounceDamping: 32 }}
+            whileDrag={{ scale: 0.985 }}
             onDragEnd={(_, info) => {
-              if (info.offset.x < -70 || info.velocity.x < -500) onDelete(notification)
+              if (info.offset.x < -82 || info.velocity.x < -650) onDelete(notification)
             }}
             onClick={() => onRead(notification)}
             className={`relative flex w-full items-start gap-3 rounded-xl border px-3 py-3 text-left transition ${notification.isRead ? 'border-transparent bg-[#f9faf9]' : 'border-[#e4f0e7] bg-[#edf8f1]'}`}
