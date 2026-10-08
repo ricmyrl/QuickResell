@@ -163,8 +163,10 @@ body { overflow-x: hidden; }
 .scrollbar-hidden::-webkit-scrollbar { display: none; }
 .live-pulse { animation: live-pulse 1.6s ease-out infinite; }
 .enter-up { animation: enter-up .55s cubic-bezier(.2,.7,.2,1) both; }
+.toast-enter { animation: toast-enter .2s ease-out both; }
 @keyframes live-pulse { 0%, 100% { box-shadow: 0 0 0 0 rgb(217 75 61 / 25%); } 60% { box-shadow: 0 0 0 6px rgb(217 75 61 / 0%); } }
 @keyframes enter-up { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes toast-enter { from { opacity: 0; translate: 0 12px; } to { opacity: 1; translate: 0 0; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; } }
 
 @media print {

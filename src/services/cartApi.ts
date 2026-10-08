@@ -1,5 +1,5 @@
 import type { Session } from '@supabase/supabase-js'
-import { supabase } from '../lib/supabase'
+import { resolveSession } from '../lib/resolveSession'
 import type { FulfillmentMethod, ListingReactionCounts, ListingReactionType, MarketplaceListing, PurchaseOrder, SellerOrderItem, ShoppingCartItem } from '../types'
 
 const pageHostApiUrl = typeof window !== 'undefined' && window.location.protocol === 'http:'
@@ -74,7 +74,7 @@ async function request<T>(path: string, init: RequestInit = {}, session?: Sessio
   let lastError: unknown
   for (const baseUrl of apiBaseCandidates) {
     try {
-      const activeSession = session ?? (await supabase?.auth.getSession())?.data.session
+      const activeSession = await resolveSession(session)
       const headers = new Headers(init.headers)
       headers.set('Content-Type', 'application/json')
       if (activeSession?.access_token) headers.set('Authorization', `Bearer ${activeSession.access_token}`)

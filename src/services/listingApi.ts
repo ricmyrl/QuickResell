@@ -1,5 +1,5 @@
 import type { Session } from '@supabase/supabase-js'
-import { supabase } from '../lib/supabase'
+import { resolveSession } from '../lib/resolveSession'
 import type { Auction, IncrementCurveType, ListingReactionCounts, ListingReactionType, MarketplaceListing, ProductComment } from '../types'
 import type { Coordinates } from '../lib/geolocation'
 
@@ -80,6 +80,7 @@ function normalizeListing(listing: ApiListing): MarketplaceListing {
 }
 
 async function apiRequest<T>(path: string, session?: Session | null, init: RequestInit = {}): Promise<T> {
+  session = await resolveSession(session)
   let lastError: unknown
   for (const baseUrl of apiBaseCandidates) {
     try {
@@ -138,6 +139,7 @@ export async function createListing(
   images: File[],
   session: Session,
 ): Promise<{ listing: MarketplaceListing; auction: Auction | null }> {
+  const { supabase } = await import('../lib/supabase')
   if (!supabase) throw new Error('Supabase Storage is not configured.')
   if (!session.user.email_confirmed_at) throw new Error('Confirm your email before creating a listing.')
   if (images.length < 1 || images.length > maxImages) throw new Error(`Choose between 1 and ${maxImages} product images.`)
