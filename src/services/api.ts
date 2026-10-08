@@ -1,6 +1,5 @@
 import type { Session } from '@supabase/supabase-js'
 import { resolveSession } from '../lib/resolveSession'
-import { getCachedFeedPage, setCachedFeedPage } from '../lib/feedPageCache'
 import type { Auction, AuctionWatchlistRule, Bid, IncrementCurveType, ListingReactionCounts, ListingReactionType, NotificationItem, Verdict } from '../types'
 
 const pageHostApiUrl = typeof window !== 'undefined' && window.location.protocol === 'http:'
@@ -149,16 +148,10 @@ export async function getPublicAuctions(
   cursor?: string | null,
   limit = 12,
 ): Promise<{ items: Auction[]; nextCursor: string | null }> {
-  const cacheScope = `${session?.user.id ?? 'public'}:${limit}`
-  const cached = getCachedFeedPage<Auction>('auctions', cacheScope, cursor ?? null)
-  if (cached) return cached
-
   const params = new URLSearchParams({ limit: String(limit) })
   if (cursor) params.set('cursor', cursor)
   const result = await request<{ auctionRooms: ApiAuctionRoom[]; nextCursor: string | null }>(`/auctions?${params}`, {}, session)
-  const page = { items: result.auctionRooms.map(normalizeRoom), nextCursor: result.nextCursor }
-  setCachedFeedPage('auctions', cacheScope, cursor ?? null, page)
-  return page
+  return { items: result.auctionRooms.map(normalizeRoom), nextCursor: result.nextCursor }
 }
 
 export async function getAuctionWatchlist(session?: Session | null): Promise<AuctionWatchlistRule[]> {
