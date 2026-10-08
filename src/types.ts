@@ -1,4 +1,5 @@
 export type AuctionStatus = 'ACTIVE' | 'PENDING_APPROVAL' | 'SOLD' | 'REJECTED' | 'CLOSED'
+export type IncrementCurveType = 'LINEAR_TIERED' | 'LOGARITHMIC' | 'EXPONENTIAL' | 'MARKET_SIGMOID'
 
 export type Bid = {
   id: string
@@ -22,6 +23,7 @@ export type Auction = {
   status: AuctionStatus
   isPublic: boolean
   reservePrice?: number | null
+  incrementCurve?: IncrementCurveType
   seller: { id: string; displayName: string; avatarUrl?: string | null; trustScore: number; completedAuctions: number }
   highestBidderId?: string | null
   bids: Bid[]
@@ -36,10 +38,16 @@ export type AuctionWatchlistRule = {
   auctionRoomId: string
   maxBid: number
   bidStep: number
+  strategy: BidStrategy
+  jumpMultiplier: number
+  sniperWindowSeconds: number
+  marginOfSafety: number
   autoBidEnabled: boolean
   updatedAt: string
   auction: Auction
 }
+
+export type BidStrategy = 'STANDARD' | 'JUMP_BID' | 'SNIPER' | 'RESERVE_TARGET' | 'ANALYST'
 
 export type Verdict = 'ACCEPT' | 'REJECT'
 

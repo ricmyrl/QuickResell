@@ -132,7 +132,7 @@ function answerLocally(text: string, auctions: Auction[], listings: MarketplaceL
   const maximumMatch = normalized.match(/(?:max(?:imum)?(?:\s+(?:bid|price))?|up to|bid limit)(?:\s+of)?\s*:?\s*\$?([\d,]+(?:\.\d{1,2})?)/)
   const stepMatch = normalized.match(/(?:step|increment|raise by)\s*:?\s*\$?([\d,]+(?:\.\d{1,2})?)/)
   const maximum = maximumMatch ? localToUsd(Number(maximumMatch[1].replaceAll(',', ''))) ?? 0 : 0
-  const step = stepMatch ? localToUsd(Number(stepMatch[1].replaceAll(',', ''))) ?? 0 : 0
+  const step = stepMatch ? localToUsd(Number(stepMatch[1].replaceAll(',', ''))) ?? 0 : Math.min(5, maximum)
   const asksScoutToBid = /\b(auto.?bid|bid on my behalf|bid up to|maximum bid|bid limit|watch|watchlist|wishlist|track this|save this|watch this)\b/.test(normalized)
   const wantsBudgetHelp = /\b(cheap|budget|deal|good value|best value|affordable|under|below|less than|save|lowest price)\b/.test(normalized)
   const wantsRecommendations = /\b(best|recommend|suggest|what should i buy|what should i bid|good pick|worth it)\b/.test(normalized)
@@ -144,13 +144,13 @@ function answerLocally(text: string, auctions: Auction[], listings: MarketplaceL
     }
     if (maximum >= Math.max(matchedAuction.currentHighestBid, matchedAuction.startingPrice) + 1 && step > 0 && step <= maximum) {
       return {
-        text: `I can prepare a rule for “${matchedAuction.title}”: maximum ${currency(maximum)}, step ${currency(step)}. I will not bid until you review the rule, enable Scout, and confirm authorization on the Watchlist screen.`,
+        text: `I can prepare a rule for “${matchedAuction.title}” with a maximum of ${currency(maximum)}. Standard bidding follows the system increment schedule. Review and choose a strategy in your Watchlist; Scout will not bid until you enable it and confirm authorization.`,
         intent: 'bid_rule',
         actions: [{ label: 'Review this bid rule', kind: 'prepareRule', auctionId: matchedAuction.id, maxBid: maximum, bidStep: step }],
       }
     }
     return {
-      text: `I found “${matchedAuction.title}” at ${currency(matchedAuction.currentHighestBid)}. Tell me your maximum and bid step, for example: “Watch ${matchedAuction.title}, max ${currency(80)}, step ${currency(5)}.” Scout will only prepare the rule; you must enable and authorize it before any bid is placed.`,
+      text: `I found “${matchedAuction.title}” at ${currency(matchedAuction.currentHighestBid)}. Tell me your maximum, for example: “Watch ${matchedAuction.title}, max ${currency(80)}.” You can choose a bidding strategy in the Watchlist. Scout will only prepare the rule; you must enable and authorize it before any bid is placed.`,
       intent: 'bid_rule',
       actions: [{ label: 'Open Watchlist', kind: 'navigate', destination: 'watchlist' }],
     }
@@ -185,11 +185,11 @@ function answerLocally(text: string, auctions: Auction[], listings: MarketplaceL
   }
 
   if (asksScoutToBid) {
-    return { text: `Which live auction should I watch? Include its title, your maximum price, and a bid step. Example: “Watch Intro Psychology Textbook, max ${currency(80)}, step ${currency(5)}.” I’ll prepare a rule for you to review; it will not bid until you authorize it.`, intent: 'bid_rule', actions: [{ label: 'Browse auctions', kind: 'navigate', destination: 'feed' }, { label: 'Open Watchlist', kind: 'navigate', destination: 'watchlist' }] }
+    return { text: `Which live auction should I watch? Include its title and maximum price. Example: “Watch Intro Psychology Textbook, max ${currency(80)}.” You can choose a bidding strategy in your Watchlist; Scout will not bid until you authorize it.`, intent: 'bid_rule', actions: [{ label: 'Browse auctions', kind: 'navigate', destination: 'feed' }, { label: 'Open Watchlist', kind: 'navigate', destination: 'watchlist' }] }
   }
 
   if (/\b(watchlist|wishlist|watch my auctions|saved auctions)\b/.test(normalized)) {
-    return { text: 'Your Watchlist stores live auctions and their price rules. Choose a maximum and bid step. Scout bidding stays paused until you enable it and confirm the per-auction authorization.', intent: 'bid_rule', actions: [{ label: 'Open Watchlist', kind: 'navigate', destination: 'watchlist' }] }
+    return { text: 'Your Watchlist stores live auctions and their price rules. Choose a maximum and one of the available bidding strategies. Scout bidding stays paused until you enable it and confirm the per-auction authorization.', intent: 'bid_rule', actions: [{ label: 'Open Watchlist', kind: 'navigate', destination: 'watchlist' }] }
   }
 
   if (/\b(am i (still )?winning|did i win|outbid|my bid|bid status|is my bid|did scout bid)\b/.test(normalized)) {
@@ -202,7 +202,7 @@ function answerLocally(text: string, auctions: Auction[], listings: MarketplaceL
     const rule = rules.find((item) => item.auctionRoomId === matchedAuction.id)
     const leading = matchedAuction.highestBidderId === currentUserId
     const position = leading ? 'You are currently the high bidder.' : matchedAuction.highestBidderId ? 'You are not currently leading; another bidder is ahead.' : 'No one has placed a bid yet.'
-    const scout = rule ? ` Your saved Scout rule is ${rule.autoBidEnabled ? 'on' : 'paused'} with a ${currency(rule.maxBid)} maximum and ${currency(rule.bidStep)} step.` : ''
+    const scout = rule ? ` Your saved Scout rule is ${rule.autoBidEnabled ? 'on' : 'paused'} with a ${currency(rule.maxBid)} maximum and the ${rule.strategy.replace('_', ' ').toLowerCase()} strategy.` : ''
     const offlineNotice = online ? '' : ' This is the last saved state; reconnect to confirm the live price.'
     return { text: `“${matchedAuction.title}” is at ${currency(matchedAuction.currentHighestBid)}. ${position}${scout}${offlineNotice}`, intent: 'bid_status', actions: [{ label: 'Open auction', kind: 'auction', auctionId: matchedAuction.id }, { label: 'Open Watchlist', kind: 'navigate', destination: 'watchlist' }] }
   }

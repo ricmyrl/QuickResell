@@ -296,8 +296,8 @@ export function AuctionRoom({ auction, userId, autoBidRule, onBack, onBid, onExp
                 <p className="mt-1 font-bold tabular-nums text-[#2b4539]">{autoBidRule ? currency.format(autoBidRule.maxBid) : 'Not set'}</p>
               </div>
               <div>
-                <p className="text-[10px] font-medium text-[#829089]">Auto-bid step</p>
-                <p className="mt-1 font-bold tabular-nums text-[#2b4539]">{autoBidRule ? currency.format(autoBidRule.bidStep) : 'Not set'}</p>
+                <p className="text-[10px] font-medium text-[#829089]">Increment curve</p>
+                <p className="mt-1 font-bold text-[#2b4539]">{autoBidRule ? (auction.incrementCurve ?? 'LINEAR_TIERED').replace('_', ' ') : 'Not set'}</p>
               </div>
               {autoBidRule && (
                 <p className={`col-span-2 text-[10px] font-semibold sm:col-span-3 ${autoBidRule.autoBidEnabled ? 'text-[#4d764d]' : 'text-[#87938b]'}`}>

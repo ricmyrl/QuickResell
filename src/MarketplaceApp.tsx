@@ -11,7 +11,7 @@ import { supabase } from './lib/supabase'
 import { useCurrency } from './lib/CurrencyContext'
 import { useAuctionFeedRealtime } from './hooks/useAuctionFeedRealtime'
 import { useShoppingCart } from './hooks/useShoppingCart'
-import { askScout, closeAuction, createScoutSupportRequest, getAuctionWatchlist, getNotifications, getPublicAuctions, getSellerAuctions, markAllNotificationsRead, markNotificationRead, placeBid, removeAuctionWatchlistRule, saveAuctionWatchlistRule, submitScoutFeedback, submitVerdict } from './services/api'
+import { askScout, closeAuction, createScoutSupportRequest, deleteNotification, getAuctionWatchlist, getNotifications, getPublicAuctions, getSellerAuctions, markAllNotificationsRead, markNotificationRead, placeBid, removeAuctionWatchlistRule, saveAuctionWatchlistRule, submitScoutFeedback, submitVerdict } from './services/api'
 import { getStoreListings, initializePayment, initializeWalletTopUp } from './services/cartApi'
 import { getListingCategories, getMyListings, getWatchlist, toggleWatchlist } from './services/listingApi'
 import type { Auction, AuctionWatchlistRule, MarketplaceListing, NotificationItem, Verdict } from './types'
@@ -520,7 +520,7 @@ export default function MarketplaceApp() {
     setListings((current) => current.filter((listing) => listing.id !== auction.postId))
   }
 
-  const handleSaveAuctionRule = async (auctionRoomId: string, rule: Pick<AuctionWatchlistRule, 'maxBid' | 'bidStep' | 'autoBidEnabled'> & { authorizationConfirmed: boolean }) => {
+  const handleSaveAuctionRule = async (auctionRoomId: string, rule: Pick<AuctionWatchlistRule, 'maxBid' | 'bidStep' | 'strategy' | 'jumpMultiplier' | 'sniperWindowSeconds' | 'marginOfSafety' | 'autoBidEnabled'> & { authorizationConfirmed: boolean }) => {
     if (!session) {
       setAuthMode('signin')
       return
@@ -593,6 +593,10 @@ export default function MarketplaceApp() {
     await handleSaveAuctionRule(auction.id, {
       maxBid,
       bidStep: Math.min(5, maxBid),
+      strategy: 'STANDARD',
+      jumpMultiplier: 2,
+      sniperWindowSeconds: 120,
+      marginOfSafety: 0,
       autoBidEnabled: false,
       authorizationConfirmed: false,
     })
@@ -610,6 +614,10 @@ export default function MarketplaceApp() {
     void handleSaveAuctionRule(auction.id, {
       maxBid: maxBidUsd,
       bidStep: bidStepUsd,
+      strategy: 'STANDARD',
+      jumpMultiplier: 2,
+      sniperWindowSeconds: 120,
+      marginOfSafety: 0,
       autoBidEnabled: false,
       authorizationConfirmed: false,
     })
@@ -707,6 +715,17 @@ export default function MarketplaceApp() {
     }
   }
 
+  const handleNotificationDelete = async (notification: NotificationItem) => {
+    if (!session) return
+    try {
+      await deleteNotification(notification.id, session)
+      setNotifications((items) => items.filter((item) => item.id !== notification.id))
+      showToast('Notification deleted.')
+    } catch (caught) {
+      showToast(caught instanceof Error ? caught.message : 'The notification could not be deleted. Please try again.', 'error')
+    }
+  }
+
   const handleMarkAllNotificationsRead = async () => {
     if (!session) return
     const updated = await markAllNotificationsRead(session)
@@ -779,7 +798,7 @@ export default function MarketplaceApp() {
         {nav}
       </nav>
     </div>}
-    <NotificationsPanel open={notificationsOpen} notifications={notifications} onClose={() => setNotificationsOpen(false)} onMarkAllRead={() => void handleMarkAllNotificationsRead()} onRead={(notification) => void handleNotificationClick(notification)} />
+    <NotificationsPanel open={notificationsOpen} notifications={notifications} onClose={() => setNotificationsOpen(false)} onMarkAllRead={() => void handleMarkAllNotificationsRead()} onRead={(notification) => void handleNotificationClick(notification)} onDelete={(notification) => void handleNotificationDelete(notification)} />
     {isPaymentCallback && <Suspense fallback={<div className="fixed inset-0 z-[100] grid place-items-center bg-[#14221c]/65 text-sm text-white">Verifying Paystack payment…</div>}><PaystackReturnPage reference={paymentReference} transactionType={paymentTransactionType} session={session} authLoading={authLoading} emailConfirmed={emailConfirmed} onRequestSignIn={() => setAuthMode('signin', `${location.pathname}${location.search}`)} onCompleteCheckout={completePaymentCheckout} onComplete={completePaystackReturn} /></Suspense>}
 
     <div className="border-b border-[#e4eae5] bg-white"><div className="mx-auto flex max-w-[1640px] flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-6 lg:px-8"><div><p className="text-sm font-semibold text-[#2b4036]">Have something to sell?</p><p className="mt-0.5 text-xs text-[#7a8781]">Add product photos and list it for local buyers.</p></div><Button variant="secondary" onClick={openSellerStudio} icon={<ImagePlus size={16} />}>Sell an item</Button></div></div>
@@ -806,7 +825,7 @@ export default function MarketplaceApp() {
     </nav>
 
 
-    <AnimatePresence>{toast && <motion.div role="status" initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 12 }} className={`fixed bottom-20 left-1/2 z-[60] flex w-[calc(100%-32px)] max-w-md -translate-x-1/2 items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium text-white shadow-xl lg:bottom-6 ${toast.kind === 'error' ? 'bg-[#ad473c]' : 'bg-[#274c3d]'}`}><span className="flex-1">{toast.message}</span><IconButton label="Dismiss notification" className="size-8 text-white hover:bg-white/15 hover:text-white" onClick={() => setToast(null)}><X size={15} /></IconButton></motion.div>}</AnimatePresence>
+    <AnimatePresence>{toast && <motion.div role="status" initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 12 }} className={`fixed bottom-20 left-1/2 z-[110] flex w-[calc(100%-32px)] max-w-md -translate-x-1/2 items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium text-white shadow-xl lg:bottom-6 ${toast.kind === 'error' ? 'bg-[#ad473c]' : 'bg-[#274c3d]'}`}><span className="flex-1">{toast.message}</span><IconButton label="Dismiss notification" className="size-8 text-white hover:bg-white/15 hover:text-white" onClick={() => setToast(null)}><X size={15} /></IconButton></motion.div>}</AnimatePresence>
       {(selectedAuction || view === 'shop') && <aside style={{ right: 'max(0px, calc(50vw - 820px))' }} className="fixed top-[68px] hidden h-[calc(100vh-68px)] w-[270px] border-l border-[#e6ebe7] bg-[#f9faf9] xl:block"><BidAdvert auction={selectedAuction ?? auctions.filter((item) => item.status === 'ACTIVE').sort((a, b) => new Date(a.endsAt).getTime() - new Date(b.endsAt).getTime())[0] ?? null} onOpen={(auction) => { setSelectedId(auction.id); setViewState('feed') }} /></aside>}
     </div>}
   </Suspense>

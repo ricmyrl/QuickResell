@@ -1,6 +1,6 @@
 import type { Session } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabase'
-import type { Auction, AuctionWatchlistRule, Bid, ListingReactionCounts, ListingReactionType, NotificationItem, Verdict } from '../types'
+import type { Auction, AuctionWatchlistRule, Bid, IncrementCurveType, ListingReactionCounts, ListingReactionType, NotificationItem, Verdict } from '../types'
 
 const pageHostApiUrl = typeof window !== 'undefined' && window.location.protocol === 'http:'
   ? `http://${window.location.hostname}:3000/api`
@@ -17,7 +17,7 @@ const apiBaseCandidates = Array.from(new Set([
 type ApiBid = { id: string; amount: number; createdAt: string; bidder?: { id: string; displayName?: string | null; avatarUrl?: string | null } }
 type ApiAuctionRoom = {
   id: string; postId: string; sellerId: string; currentHighestBid: number; highestBidderId: string | null
-  isPublic: boolean; reservePrice?: number | null; status: Auction['status']; endsAt: string
+  isPublic: boolean; reservePrice?: number | null; noReserve?: boolean; incrementCurve?: IncrementCurveType; status: Auction['status']; endsAt: string
   post?: { id: string; title: string; description?: string | null; price: number; locationCampus?: string | null; category?: { name: string }; images?: { url: string }[]; _count?: { listingReactions: number }; listingReactions?: Array<{ type: ListingReactionType }>; reactionCounts?: ListingReactionCounts }
   seller?: { id: string; displayName?: string | null; avatarUrl?: string | null; trustScore?: number; completedAuctions?: number }
   bids?: ApiBid[]
@@ -27,6 +27,10 @@ type ApiAuctionWatchlistRule = {
   auctionRoomId: string
   maxBid: number
   bidStep: number
+  strategy: AuctionWatchlistRule['strategy']
+  jumpMultiplier: number
+  sniperWindowSeconds: number
+  marginOfSafety: number
   autoBidEnabled: boolean
   updatedAt: string
   auctionRoom: ApiAuctionRoom | null
@@ -87,7 +91,8 @@ function normalizeRoom(room: ApiAuctionRoom): Auction {
     myReaction: room.post?.listingReactions?.[0]?.type ?? null,
     startingPrice: room.post?.price ?? 0, currentHighestBid: room.currentHighestBid,
     endsAt: room.endsAt, status: room.status, isPublic: room.isPublic, reservePrice: room.reservePrice,
-    highestBidderId: room.highestBidderId, noReserve: room.reservePrice == null,
+    incrementCurve: room.incrementCurve ?? 'LINEAR_TIERED',
+    highestBidderId: room.highestBidderId, noReserve: room.noReserve ?? (room.reservePrice == null || room.reservePrice <= 0),
     seller: { id: room.seller?.id ?? room.sellerId, displayName: room.seller?.displayName ?? '', avatarUrl: room.seller?.avatarUrl, trustScore: room.seller?.trustScore ?? 0, completedAuctions: room.seller?.completedAuctions ?? 0 },
     bids: (room.bids ?? []).map((bid) => ({ id: bid.id, amount: bid.amount, createdAt: bid.createdAt, bidder: { id: bid.bidder?.id ?? '', displayName: bid.bidder?.displayName ?? 'Bidder', avatarUrl: bid.bidder?.avatarUrl } })),
   }
@@ -150,6 +155,10 @@ export async function getAuctionWatchlist(session?: Session | null): Promise<Auc
     auctionRoomId: item.auctionRoomId,
     maxBid: item.maxBid,
     bidStep: item.bidStep,
+    strategy: item.strategy,
+    jumpMultiplier: item.jumpMultiplier,
+    sniperWindowSeconds: item.sniperWindowSeconds,
+    marginOfSafety: item.marginOfSafety,
     autoBidEnabled: item.autoBidEnabled,
     updatedAt: item.updatedAt,
     auction: normalizeRoom(item.auctionRoom),
@@ -158,7 +167,7 @@ export async function getAuctionWatchlist(session?: Session | null): Promise<Auc
 
 export async function saveAuctionWatchlistRule(
   auctionRoomId: string,
-  rule: Pick<AuctionWatchlistRule, 'maxBid' | 'bidStep' | 'autoBidEnabled'> & { authorizationConfirmed: boolean },
+  rule: Pick<AuctionWatchlistRule, 'maxBid' | 'bidStep' | 'strategy' | 'jumpMultiplier' | 'sniperWindowSeconds' | 'marginOfSafety' | 'autoBidEnabled'> & { authorizationConfirmed: boolean },
   session?: Session | null,
 ): Promise<{ rule: AuctionWatchlistRule; autoBidPlaced: boolean; emailNotified: boolean }> {
   const result = await request<{ item: ApiAuctionWatchlistRule; autoBidPlaced: boolean; emailNotified: boolean }>(`/watchlist/auctions/${encodeURIComponent(auctionRoomId)}`, {
@@ -172,6 +181,10 @@ export async function saveAuctionWatchlistRule(
       auctionRoomId: result.item.auctionRoomId,
       maxBid: result.item.maxBid,
       bidStep: result.item.bidStep,
+      strategy: result.item.strategy,
+      jumpMultiplier: result.item.jumpMultiplier,
+      sniperWindowSeconds: result.item.sniperWindowSeconds,
+      marginOfSafety: result.item.marginOfSafety,
       autoBidEnabled: result.item.autoBidEnabled,
       updatedAt: result.item.updatedAt,
       auction: normalizeRoom(result.item.auctionRoom),
@@ -234,6 +247,10 @@ export async function submitVerdict(roomId: string, decision: Verdict, session?:
 export async function getNotifications(session?: Session | null): Promise<NotificationItem[]> {
   const result = await request<{ notifications: NotificationItem[] }>('/notifications', {}, session)
   return result.notifications
+}
+
+export async function deleteNotification(id: string, session?: Session | null): Promise<void> {
+  await request<void>(`/notifications/${encodeURIComponent(id)}`, { method: 'DELETE' }, session)
 }
 
 export async function markNotificationRead(id: string, session?: Session | null): Promise<NotificationItem> {

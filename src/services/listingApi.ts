@@ -1,6 +1,6 @@
 import type { Session } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabase'
-import type { Auction, ListingReactionCounts, ListingReactionType, MarketplaceListing, ProductComment } from '../types'
+import type { Auction, IncrementCurveType, ListingReactionCounts, ListingReactionType, MarketplaceListing, ProductComment } from '../types'
 import type { Coordinates } from '../lib/geolocation'
 
 const pageHostApiUrl = typeof window !== 'undefined' && window.location.protocol === 'http:'
@@ -27,9 +27,11 @@ export type NewListing = {
   categoryId: string
   price: number
   originalPrice?: number
+  conditionScore?: number
   locationCampus: string
   quantityAvailable: number
   auctionDurationHours?: number
+  incrementCurve?: IncrementCurveType
   coordinates?: Coordinates
 }
 
@@ -162,7 +164,7 @@ export async function createListing(
     }
 
     const { coordinates, ...listingDetails } = details
-    const result = await apiRequest<{ listing: ApiListing; auctionRoom: { id: string; postId: string; sellerId: string; currentHighestBid: number; endsAt: string; status: Auction['status']; isPublic: boolean; reservePrice?: number | null } | null }>('/listings', session, {
+    const result = await apiRequest<{ listing: ApiListing; auctionRoom: { id: string; postId: string; sellerId: string; currentHighestBid: number; endsAt: string; status: Auction['status']; isPublic: boolean; reservePrice?: number | null; incrementCurve?: IncrementCurveType } | null }>('/listings', session, {
       method: 'POST',
       body: JSON.stringify({
         ...listingDetails,
@@ -192,6 +194,7 @@ export async function createListing(
         status: room.status,
         isPublic: room.isPublic,
         reservePrice: room.reservePrice,
+        incrementCurve: room.incrementCurve ?? details.incrementCurve ?? 'LINEAR_TIERED',
         seller: {
           id: listing.seller.id,
           displayName: listing.seller.displayName,
@@ -200,7 +203,7 @@ export async function createListing(
           completedAuctions: 0,
         },
         bids: [],
-        noReserve: room.reservePrice == null,
+        noReserve: room.reservePrice == null || room.reservePrice <= 0,
       } : null,
     }
   } catch (error) {

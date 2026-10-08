@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { ArrowLeft, ImagePlus, LoaderCircle, MapPin, X } from 'lucide-react'
-import type { Auction, MarketplaceListing } from '../../types'
+import type { Auction, IncrementCurveType, MarketplaceListing } from '../../types'
 import { createListing, getListingCategories, type ListingCategory } from '../../services/listingApi'
 import { getCurrentLocation, type Coordinates } from '../../lib/geolocation'
 import { Button, IconButton } from '../common/Button'
@@ -24,6 +24,7 @@ export function CreateListingPage({ onClose, session, onCreated, onAuctionCreate
   const [categoryId, setCategoryId] = useState('')
   const [price, setPrice] = useState('')
   const [originalPrice, setOriginalPrice] = useState('')
+  const [conditionScore, setConditionScore] = useState('')
   const [locationCampus, setLocationCampus] = useState('')
   const [coordinates, setCoordinates] = useState<Coordinates | null>(null)
   const [locationBusy, setLocationBusy] = useState(false)
@@ -32,6 +33,7 @@ export function CreateListingPage({ onClose, session, onCreated, onAuctionCreate
   const [images, setImages] = useState<SelectedImage[]>([])
   const [saleType, setSaleType] = useState<'shop' | 'auction'>('shop')
   const [auctionDurationHours, setAuctionDurationHours] = useState('24')
+  const [incrementCurve, setIncrementCurve] = useState<IncrementCurveType>('LINEAR_TIERED')
   const previewUrls = useRef(new Set<string>())
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -65,12 +67,14 @@ export function CreateListingPage({ onClose, session, onCreated, onAuctionCreate
     setCategoryId('')
     setPrice('')
     setOriginalPrice('')
+    setConditionScore('')
     setLocationCampus('')
     setCoordinates(null)
     setLocationError('')
     setQuantityAvailable('1')
     setSaleType('shop')
     setAuctionDurationHours('24')
+    setIncrementCurve('LINEAR_TIERED')
     images.forEach(({ previewUrl }) => {
       URL.revokeObjectURL(previewUrl)
       previewUrls.current.delete(previewUrl)
@@ -109,6 +113,12 @@ export function CreateListingPage({ onClose, session, onCreated, onAuctionCreate
       setError('Exchange rates are unavailable. Switch to USD or try again later.')
       return
     }
+    const parsedConditionScore = conditionScore.trim() ? Number(conditionScore) : undefined
+    if (parsedConditionScore !== undefined
+      && (!Number.isFinite(parsedConditionScore) || parsedConditionScore <= 0.1 || parsedConditionScore > 1)) {
+      setError('Condition score must be greater than 0.1 and at most 1.0.')
+      return
+    }
 
     setBusy(true)
     try {
@@ -118,9 +128,13 @@ export function CreateListingPage({ onClose, session, onCreated, onAuctionCreate
         categoryId,
         price: priceUsd,
         ...(originalPrice.trim() && originalPriceUsd !== null ? { originalPrice: originalPriceUsd } : {}),
+        ...(parsedConditionScore !== undefined ? { conditionScore: parsedConditionScore } : {}),
         locationCampus: locationCampus.trim(),
         quantityAvailable: Number(quantityAvailable),
-        ...(saleType === 'auction' ? { auctionDurationHours: Number(auctionDurationHours) } : {}),
+        ...(saleType === 'auction' ? {
+          auctionDurationHours: Number(auctionDurationHours),
+          incrementCurve,
+        } : {}),
         ...(coordinates ? { coordinates } : {}),
       }, images.map(({ file }) => file), session)
       onCreated(result.listing)
@@ -151,6 +165,7 @@ export function CreateListingPage({ onClose, session, onCreated, onAuctionCreate
         <label className="block"><span className="mb-1.5 block text-xs font-semibold text-[#43564b]">Quantity available</span><input type="number" required min="1" max="1000" step="1" value={quantityAvailable} onChange={(event) => setQuantityAvailable(event.target.value)} className="h-11 w-full rounded-xl border border-[#dfe7e1] px-3 text-sm outline-none focus:border-[#86a995]" /></label>
         <label className="block"><span className="mb-1.5 block text-xs font-semibold text-[#43564b]">Price ({displayCurrency})</span><input type="number" required min="0" step="0.01" value={price} onChange={(event) => setPrice(event.target.value)} placeholder="0.00" className="h-11 w-full rounded-xl border border-[#dfe7e1] px-3 text-sm outline-none focus:border-[#86a995]" /></label>
         <label className="block"><span className="mb-1.5 block text-xs font-semibold text-[#43564b]">Original price ({displayCurrency}, optional)</span><input type="number" min={price || '0'} step="0.01" value={originalPrice} onChange={(event) => setOriginalPrice(event.target.value)} placeholder="0.00" className="h-11 w-full rounded-xl border border-[#dfe7e1] px-3 text-sm outline-none focus:border-[#86a995]" /></label>
+        <label className="block"><span className="mb-1.5 block text-xs font-semibold text-[#43564b]">Condition score (optional)</span><input type="number" min="0.11" max="1" step="0.01" value={conditionScore} onChange={(event) => setConditionScore(event.target.value)} placeholder="1.0 (default)" className="h-11 w-full rounded-xl border border-[#dfe7e1] px-3 text-sm outline-none focus:border-[#86a995]" /></label>
       </div>
       <div className="rounded-xl border border-[#e2e8e2] bg-[#f8faf8] p-3.5">
         <div className="mb-2 flex items-center justify-between gap-3">
@@ -164,6 +179,15 @@ export function CreateListingPage({ onClose, session, onCreated, onAuctionCreate
           <label className="block">
             <span className="mb-1.5 block text-xs font-semibold text-[#43564b]">Auction duration (hours)</span>
             <input type="number" inputMode="numeric" min="1" max="720" step="1" value={auctionDurationHours} onChange={(event) => setAuctionDurationHours(event.target.value)} className="h-11 w-full rounded-xl border border-[#dfe7e1] bg-white px-3 text-sm outline-none focus:border-[#86a995] focus:ring-4 focus:ring-[#e7f0e9]" required />
+          </label>
+          <label className="block">
+            <span className="mb-1.5 block text-xs font-semibold text-[#43564b]">Automatic bid increment curve</span>
+            <select value={incrementCurve} onChange={(event) => setIncrementCurve(event.target.value as IncrementCurveType)} className="h-11 w-full rounded-xl border border-[#dfe7e1] bg-white px-3 text-sm outline-none focus:border-[#86a995]">
+              <option value="LINEAR_TIERED">Standard price tiers</option>
+              <option value="LOGARITHMIC">Logarithmic (dampened growth)</option>
+              <option value="EXPONENTIAL">Exponential (accelerated growth)</option>
+              <option value="MARKET_SIGMOID">Market velocity (activity-adaptive)</option>
+            </select>
           </label>
           <p className="text-[11px] leading-5 text-[#7a8781]">Set from 1 hour to 30 days. Auction duration can only be selected while publishing the product.</p>
         </div>}
