@@ -1,5 +1,6 @@
 import type { Session } from '@supabase/supabase-js'
 import { resolveSession } from '../lib/resolveSession'
+import { getCachedFeedPage, setCachedFeedPage } from '../lib/feedPageCache'
 import type { FulfillmentMethod, ListingReactionCounts, ListingReactionType, MarketplaceListing, PurchaseOrder, SellerOrderItem, ShoppingCartItem } from '../types'
 
 const pageHostApiUrl = typeof window !== 'undefined' && window.location.protocol === 'http:'
@@ -114,10 +115,16 @@ export async function getStoreListings(
   cursor?: string | null,
   limit = 12,
 ): Promise<{ items: MarketplaceListing[]; nextCursor: string | null }> {
+  const cacheScope = `${session?.user.id ?? 'public'}:${limit}`
+  const cached = getCachedFeedPage<MarketplaceListing>('store', cacheScope, cursor ?? null)
+  if (cached) return cached
+
   const params = new URLSearchParams({ limit: String(limit) })
   if (cursor) params.set('cursor', cursor)
   const result = await request<{ items: ApiPost[]; nextCursor: string | null }>(`/store?${params}`, {}, session)
-  return { items: result.items.map(normalizePost), nextCursor: result.nextCursor }
+  const page = { items: result.items.map(normalizePost), nextCursor: result.nextCursor }
+  setCachedFeedPage('store', cacheScope, cursor ?? null, page)
+  return page
 }
 
 export async function getCart(session?: Session | null): Promise<ShoppingCartItem[]> {
