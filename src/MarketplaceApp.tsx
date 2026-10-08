@@ -11,6 +11,7 @@ import { useStoreFeed } from './hooks/useStoreFeed'
 import { useShoppingCart } from './hooks/useShoppingCart'
 import { askScout, closeAuction, createScoutSupportRequest, deleteNotification, getAuctionWatchlist, getNotifications, getPublicAuctions, getSellerAuctions, markAllNotificationsRead, markNotificationRead, placeBid, removeAuctionWatchlistRule, saveAuctionWatchlistRule, submitScoutFeedback, submitVerdict } from './services/api'
 import { initializePayment, initializeWalletTopUp } from './services/cartApi'
+import { verifyPasskeyForAction } from './services/passkeyVerification'
 import { getListingCategories, getMyListings, getWatchlist, toggleWatchlist } from './services/listingApi'
 import type { Auction, AuctionWatchlistRule, MarketplaceListing, NotificationItem, Verdict } from './types'
 
@@ -459,7 +460,7 @@ export default function MarketplaceApp() {
       throw new Error('Sign in before placing a bid.')
     }
     if (!emailConfirmed) throw new Error('Confirm your email before placing bids.')
-    const result = await placeBid(room.id, amount, session)
+    const result = await verifyPasskeyForAction(session, () => placeBid(room.id, amount, session))
     updateRoom(room.id, result.auction)
     await userCart.refresh()
   }
@@ -509,7 +510,7 @@ export default function MarketplaceApp() {
       return
     }
     try {
-      await userCart.add(listing)
+      await verifyPasskeyForAction(session, () => userCart.add(listing))
       showToast(`${listing.title} added to your cart.`)
     } catch (caught) {
       showToast(caught instanceof Error ? caught.message : 'This listing could not be added.', 'error')
@@ -534,7 +535,7 @@ export default function MarketplaceApp() {
     const subtotalCents = userCart.items.reduce((sum, item) => sum + item.unitPriceCents * item.quantity, 0)
     if (subtotalCents <= 0) throw new Error('Add at least one item to your cart before paying.')
 
-    const payment = await initializePayment(session)
+    const payment = await verifyPasskeyForAction(session, () => initializePayment(session))
     openPaystackCheckout(payment.authorization_url)
     return await new Promise<null>(() => undefined)
   }
@@ -600,7 +601,7 @@ export default function MarketplaceApp() {
 
     setWatchlistSavingId(auctionRoomId)
     try {
-      const result = await saveAuctionWatchlistRule(auctionRoomId, rule, session)
+      const result = await verifyPasskeyForAction(session, () => saveAuctionWatchlistRule(auctionRoomId, rule, session))
       watchlistBidValues.current.set(auctionRoomId, result.rule.auction.currentHighestBid)
       setAuctionWatchlistRules((current) => [result.rule, ...current.filter((item) => item.auctionRoomId !== auctionRoomId)])
       if (result.emailNotified) {

@@ -3,6 +3,7 @@ import type { Session } from '@supabase/supabase-js'
 import { ArrowLeft, ImagePlus, LoaderCircle, MapPin, X } from 'lucide-react'
 import type { Auction, IncrementCurveType, MarketplaceListing } from '../../types'
 import { createListing, getListingCategories, type ListingCategory } from '../../services/listingApi'
+import { verifyPasskeyForAction } from '../../services/passkeyVerification'
 import { getCurrentLocation, type Coordinates } from '../../lib/geolocation'
 import { Button, IconButton } from '../common/Button'
 import { useCurrency } from '../../lib/CurrencyContext'
@@ -122,7 +123,7 @@ export function CreateListingPage({ onClose, session, onCreated, onAuctionCreate
 
     setBusy(true)
     try {
-      const result = await createListing({
+      const result = await verifyPasskeyForAction(session, () => createListing({
         title: title.trim(),
         description: description.trim(),
         categoryId,
@@ -136,7 +137,7 @@ export function CreateListingPage({ onClose, session, onCreated, onAuctionCreate
           incrementCurve,
         } : {}),
         ...(coordinates ? { coordinates } : {}),
-      }, images.map(({ file }) => file), session)
+      }, images.map(({ file }) => file), session))
       onCreated(result.listing)
       if (result.auction) onAuctionCreated?.(result.auction)
       reset()
