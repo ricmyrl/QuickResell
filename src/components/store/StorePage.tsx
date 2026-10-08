@@ -1,8 +1,7 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Session } from '@supabase/supabase-js'
-import { ArrowDownUp, Check, MapPin, MessageCircle, PackageCheck, RefreshCw, Search, ShoppingCart, Star, Bookmark, BookmarkCheck } from 'lucide-react'
+import { ArrowDownUp, Bookmark, BookmarkCheck, Check, ChevronDown, MapPin, MessageCircle, PackageCheck, RefreshCw, Search, ShoppingCart, SlidersHorizontal, Star } from 'lucide-react'
 import { motion } from 'framer-motion'
-import { useRef } from 'react'
 import type { MarketplaceListing } from '../../types'
 import { Button } from '../common/Button'
 import { ImageLightbox } from '../common/ImageLightbox'
@@ -33,6 +32,8 @@ function ListingCard({ listing, onAdd, inCart, busy, saved, onToggleSaved, dista
 
 export function StorePage({ listings, categories, error, loading, cartHas, watchlistIds, onToggleSaved, onAdd, onOpenCart, session, emailConfirmed, onRequestSignIn, hasMore, loadingMore, loadMoreError, onLoadMore, onRefresh, refreshing }: { listings: MarketplaceListing[]; categories: string[]; error: string; loading: boolean; cartHas: (postId: string) => boolean; watchlistIds: string[]; onToggleSaved: (postId: string) => void; onAdd: (listing: MarketplaceListing) => void; onOpenCart: () => void; session: Session | null; emailConfirmed: boolean; onRequestSignIn: () => void; hasMore: boolean; loadingMore: boolean; loadMoreError: string; onLoadMore: () => void; onRefresh: () => void; refreshing: boolean }) {
   const [category, setCategory] = useState('All')
+  const [categoryMenuOpen, setCategoryMenuOpen] = useState(false)
+  const categoryMenuRef = useRef<HTMLDivElement>(null)
   const [search, setSearch] = useState(() => {
     try {
       const target = localStorage.getItem('quickresell:store:search') ?? ''
@@ -56,6 +57,23 @@ export function StorePage({ listings, categories, error, loading, cartHas, watch
     setCommentCounts((current) => current[listingId] === count ? current : { ...current, [listingId]: count })
   }, [])
   const categoryOptions = ['All', ...categories]
+  useEffect(() => {
+    if (!categoryMenuOpen) return
+    const closeOnOutsideClick = (event: MouseEvent) => {
+      if (event.target instanceof Node && !categoryMenuRef.current?.contains(event.target)) {
+        setCategoryMenuOpen(false)
+      }
+    }
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setCategoryMenuOpen(false)
+    }
+    document.addEventListener('mousedown', closeOnOutsideClick)
+    document.addEventListener('keydown', closeOnEscape)
+    return () => {
+      document.removeEventListener('mousedown', closeOnOutsideClick)
+      document.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [categoryMenuOpen])
   const visible = useMemo(() => listings.filter((item) => (!savedOnly || watchlistIds.includes(item.id)) && (category === 'All' || item.category === category) && item.title.toLowerCase().includes(search.trim().toLowerCase())).sort((a, b) => {
     if (nearbySort && buyerLocation) {
       const distanceFor = (listing: MarketplaceListing) => typeof listing.latitude === 'number' && typeof listing.longitude === 'number'
@@ -94,7 +112,38 @@ export function StorePage({ listings, categories, error, loading, cartHas, watch
     <div className="mb-5 flex flex-col gap-3 sm:flex-row"><label className="relative min-w-0 flex-1"><Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#8d9992]" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search fixed-price listings" className="h-10 w-full rounded-xl border border-[#e4eae5] bg-white pl-10 pr-3 text-sm outline-none focus:border-[#9ab4a2]" /></label><button type="button" onClick={() => { setNearbySort(false); setBuyerLocation(null); setSort((value) => value === 'featured' ? 'price' : 'featured') }} className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-[#e4eae5] bg-white px-3 text-xs font-semibold text-[#66766e]"><ArrowDownUp size={14} />{sort === 'price' ? 'Price: low to high' : 'Featured'}</button><Button variant={nearbySort ? 'primary' : 'secondary'} disabled={locationBusy} onClick={() => void handleNearby()} icon={<MapPin size={14} />}>{locationBusy ? 'Getting location…' : nearbySort ? 'Nearby (on)' : 'Nearby'}</Button><button type="button" onClick={() => setSavedOnly((value) => !value)} className={`inline-flex h-10 items-center justify-center gap-2 rounded-xl px-3 text-xs font-semibold ${savedOnly ? 'bg-[#263b33] text-white' : 'border border-[#e4eae5] bg-white text-[#66766e]'}`}><Bookmark size={14} />{savedOnly ? 'Saved only' : 'Saved items'}</button></div>
     {locationError && <div role="alert" className="mb-4 rounded-xl border border-[#f0d7d2] bg-white px-4 py-3 text-sm text-[#a34237]">{locationError}</div>}
     {nearbySort && <p role="status" className="mb-4 text-xs text-[#66766e]">Products with location details are sorted by distance. Other products remain below them.</p>}
-    <div className="scrollbar-hidden mb-5 flex gap-2 overflow-x-auto pb-1">{categoryOptions.map((item) => <button key={item} type="button" onClick={() => setCategory(item)} className={`inline-flex w-max flex-none whitespace-nowrap rounded-full border px-3.5 py-2 text-xs font-semibold ${category === item ? 'border-[#263b33] bg-[#263b33] text-white' : 'border-[#e3e9e4] bg-white text-[#73817a] hover:border-[#b9c8bd] hover:text-[#263b33]'}`}>{item}</button>)}</div>
+    <div className="mb-5 flex items-center gap-3">
+      <span className="text-xs font-semibold uppercase tracking-[.1em] text-[#718078]">Category</span>
+      <div ref={categoryMenuRef} className="relative z-20 w-full max-w-xs">
+        <button
+          type="button"
+          aria-haspopup="listbox"
+          aria-expanded={categoryMenuOpen}
+          aria-label={`Category: ${category}`}
+          onClick={() => setCategoryMenuOpen((open) => !open)}
+          className={`flex h-11 w-full items-center justify-between gap-3 rounded-xl border bg-white px-3.5 text-sm font-semibold text-[#2b4036] shadow-[0_2px_8px_rgba(31,54,42,.04)] transition hover:border-[#b9c8bd] hover:bg-[#fbfcfb] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8eae9a] ${categoryMenuOpen ? 'border-[#8eae9a] ring-2 ring-[#8eae9a]/20' : 'border-[#e1e8e2]'}`}
+        >
+          <span className="flex min-w-0 items-center gap-2.5">
+            <span className="grid size-7 shrink-0 place-items-center rounded-lg bg-[#edf4ee] text-[#426c55]"><SlidersHorizontal size={14} /></span>
+            <span className="truncate">{category === 'All' ? 'All categories' : category}</span>
+          </span>
+          <ChevronDown size={16} className={`shrink-0 text-[#728078] transition-transform ${categoryMenuOpen ? 'rotate-180' : ''}`} />
+        </button>
+        {categoryMenuOpen && <div role="listbox" aria-label="Product categories" className="absolute left-0 right-0 top-[calc(100%+8px)] max-h-72 overflow-y-auto rounded-xl border border-[#e2e9e3] bg-white p-1.5 shadow-[0_16px_40px_rgba(25,45,34,.14)]">
+          {categoryOptions.map((item) => <button
+            key={item}
+            type="button"
+            role="option"
+            aria-selected={category === item}
+            onClick={() => { setCategory(item); setCategoryMenuOpen(false) }}
+            className={`flex min-h-10 w-full items-center justify-between rounded-lg px-3 text-left text-sm transition-colors ${category === item ? 'bg-[#edf5ee] font-semibold text-[#2f6548]' : 'text-[#596a60] hover:bg-[#f5f8f5] hover:text-[#263b33]'}`}
+          >
+            <span>{item === 'All' ? 'All categories' : item}</span>
+            {category === item && <Check size={15} aria-hidden="true" />}
+          </button>)}
+        </div>}
+      </div>
+    </div>
     {error && <div role="alert" className="mb-4 rounded-xl border border-[#f0d7d2] bg-white px-4 py-3 text-sm text-[#a34237]">{error}</div>}
     {loading ? <div role="status" aria-label="Loading shop listings" className="grid grid-cols-1 gap-4 sm:grid-cols-2 2xl:grid-cols-3">{Array.from({ length: 3 }, (_, index) => <div key={index} className="overflow-hidden rounded-[16px] border border-[#e5eae6] bg-white"><div className="aspect-[1.38/1] animate-pulse bg-[#edf1ed]" /><div className="space-y-3 p-4"><div className="h-3 w-1/3 animate-pulse rounded bg-[#edf1ed]" /><div className="h-4 w-2/3 animate-pulse rounded bg-[#edf1ed]" /><div className="h-3 w-full animate-pulse rounded bg-[#f2f5f2]" /></div></div>)}</div> : visible.length ? <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 2xl:grid-cols-3">{visible.map((listing) => <ListingCard key={listing.id} listing={listing} onAdd={onAdd} inCart={cartHas(listing.id)} busy={listing.quantityAvailable < 1} saved={watchlistIds.includes(listing.id)} onToggleSaved={onToggleSaved} distanceKm={nearbySort && buyerLocation && typeof listing.latitude === 'number' && typeof listing.longitude === 'number' ? distanceInKm(buyerLocation, { latitude: listing.latitude, longitude: listing.longitude }) : null} commentsCount={commentCounts[listing.id] ?? listing.commentsCount ?? 0} onOpenComments={setCommentsListing} session={session} emailConfirmed={emailConfirmed} onRequestSignIn={onRequestSignIn} />)}</div> : <div className="rounded-[18px] border border-dashed border-[#dce5de] bg-white px-6 py-16 text-center text-sm text-[#7a8781]">{error ? 'Shop items are temporarily unavailable.' : hasMore ? 'No loaded listings match this search yet. Load more to search additional products.' : 'No fixed-price listings match this search.'}</div>}
     {loadMoreError && <p role="alert" className="mt-4 text-center text-sm text-[#a34237]">{loadMoreError}</p>}
