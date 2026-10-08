@@ -146,6 +146,12 @@ export default function MarketplaceApp() {
     navigate(returnPath(location.state), { replace: true })
   }
 
+  const backFromAuth = () => {
+    const destination = returnPath(location.state)
+    const isProtectedDestination = destination === '/cart' || destination === '/seller' || destination.startsWith('/seller/')
+    navigate(isProtectedDestination ? '/' : destination, { replace: true })
+  }
+
   const setViewState = (nextView: View) => {
     if (nextView === 'feed' && pendingAuctionNavigation.current) {
       pendingAuctionNavigation.current = false
@@ -760,7 +766,7 @@ export default function MarketplaceApp() {
   </>
 
   return <Suspense fallback={<div className="grid min-h-screen place-items-center bg-[#f5f7f5] text-sm text-[#849189]">Loading QuickResell…</div>}>
-    {authMode ? <AuthPage initialMode={authMode} returnTo={returnPath(location.state)} onBack={() => setAuthMode(null)} onAuthenticated={() => { setAuthMode(null); showToast('You’re signed in. Welcome to Quick Resell.') }} /> : <div className="min-h-screen bg-[#f5f7f5] text-[#192724]">
+    {authMode ? <AuthPage initialMode={authMode} returnTo={returnPath(location.state)} onBack={backFromAuth} onAuthenticated={() => { setAuthMode(null); showToast('You’re signed in. Welcome to Quick Resell.') }} /> : <div className="min-h-screen bg-[#f5f7f5] text-[#192724]">
     <header className="sticky top-0 z-30 flex h-[68px] items-center gap-3 border-b border-[#e6ebe7] bg-white/95 px-3 backdrop-blur-md sm:gap-4 sm:px-6 lg:px-8">
       <button type="button" aria-label={mobileMenuOpen ? 'Close marketplace menu' : 'Open marketplace menu'} aria-expanded={mobileMenuOpen} onClick={() => setMobileMenuOpen((open) => !open)} className="grid size-9 shrink-0 place-items-center rounded-lg border border-[#e7ece8] text-[#52685d] transition hover:bg-[#f3f6f3] md:hidden">{mobileMenuOpen ? <X size={18} /> : <Menu size={18} />}</button>
       <button type="button" onClick={() => { setView('feed'); setSelectedId(null) }} className="flex shrink-0 items-center gap-2.5"><span className="grid size-9 place-items-center rounded-xl bg-[#d4f06b] text-[#243a33]"><ShoppingBag size={19} strokeWidth={2.5} /></span><span className="font-display text-[17px] font-bold tracking-[-.03em]">quick<span className="text-[#70917c]">resell</span></span></button>
