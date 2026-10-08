@@ -143,9 +143,15 @@ export async function askScout(messages: ScoutChatMessage[], context: ScoutChatC
   }
 }
 
-export async function getPublicAuctions(session?: Session | null): Promise<Auction[]> {
-  const result = await request<{ auctionRooms: ApiAuctionRoom[] }>('/auctions?limit=50', {}, session)
-  return result.auctionRooms.map(normalizeRoom)
+export async function getPublicAuctions(
+  session?: Session | null,
+  cursor?: string | null,
+  limit = 12,
+): Promise<{ items: Auction[]; nextCursor: string | null }> {
+  const params = new URLSearchParams({ limit: String(limit) })
+  if (cursor) params.set('cursor', cursor)
+  const result = await request<{ auctionRooms: ApiAuctionRoom[]; nextCursor: string | null }>(`/auctions?${params}`, {}, session)
+  return { items: result.auctionRooms.map(normalizeRoom), nextCursor: result.nextCursor }
 }
 
 export async function getAuctionWatchlist(session?: Session | null): Promise<AuctionWatchlistRule[]> {

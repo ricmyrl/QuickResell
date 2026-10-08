@@ -99,7 +99,16 @@ export default function MarketplaceApp() {
   const paymentReference = paymentReturnParams.get('reference') ?? paymentReturnParams.get('trxref') ?? ''
   const paymentTransactionType = paymentReturnParams.get('type') === 'WALLET_TOPUP' ? 'WALLET_TOPUP' : 'CART_CHECKOUT'
   const [auctions, setAuctions] = useState<Auction[]>([])
+  const [auctionCursor, setAuctionCursor] = useState<string | null>(null)
+  const [auctionLoadMoreLoading, setAuctionLoadMoreLoading] = useState(false)
+  const [auctionLoadMoreError, setAuctionLoadMoreError] = useState('')
+  const auctionLoadMoreInFlight = useRef(false)
   const [listings, setListings] = useState<MarketplaceListing[]>([])
+  const [storeCursor, setStoreCursor] = useState<string | null>(null)
+  const [storeLoadMoreLoading, setStoreLoadMoreLoading] = useState(false)
+  const [storeLoadMoreError, setStoreLoadMoreError] = useState('')
+  const storeLoadMoreInFlight = useRef(false)
+  const feedRequestGeneration = useRef(0)
   const [sellerAuctions, setSellerAuctions] = useState<Auction[]>([])
   const [ownListings, setOwnListings] = useState<MarketplaceListing[]>([])
   const [categories, setCategories] = useState<string[]>([])
@@ -272,15 +281,29 @@ export default function MarketplaceApp() {
     let secondaryStarted = false
     let secondaryTimer: number | null = null
     let backgroundTimer: number | null = null
+    feedRequestGeneration.current += 1
+    auctionLoadMoreInFlight.current = false
+    storeLoadMoreInFlight.current = false
+    setAuctions([])
+    setListings([])
+    setAuctionCursor(null)
+    setStoreCursor(null)
+    setAuctionLoadMoreError('')
+    setStoreLoadMoreError('')
+    setAuctionLoadMoreLoading(false)
+    setStoreLoadMoreLoading(false)
+    setShopError('')
+    setLoadedStoreDataKey(null)
     const startSecondaryLoads = () => {
       if (cancelled || secondaryStarted) return
       secondaryStarted = true
       if (secondaryTimer !== null) window.clearTimeout(secondaryTimer)
       const requestSession = authLoading ? null : session
-      void getStoreListings(requestSession).then((storeItems) => {
+      void getStoreListings(requestSession, null, 12).then((storePage) => {
         if (cancelled) return
-        setListings(storeItems)
-        if (storeItems.length > 0 || !session) setShopError('')
+        setListings(storePage.items)
+        setStoreCursor(storePage.nextCursor)
+        if (storePage.items.length > 0 || !session) setShopError('')
       }).catch((caught: unknown) => {
         if (!cancelled) setShopError(caught instanceof Error ? caught.message : 'Shop listings could not be loaded.')
       }).finally(() => {
@@ -305,9 +328,10 @@ export default function MarketplaceApp() {
       })
     }
     secondaryTimer = window.setTimeout(startSecondaryLoads, 1200)
-    void getPublicAuctions(authLoading ? null : session).then((rooms) => {
+    void getPublicAuctions(authLoading ? null : session, null, 12).then((auctionPage) => {
       if (cancelled) return
-      setAuctions(rooms)
+      setAuctions(auctionPage.items)
+      setAuctionCursor(auctionPage.nextCursor)
       setDataError('')
       setLoadedUserId(dataKey)
     }).catch((caught: unknown) => {
@@ -324,6 +348,52 @@ export default function MarketplaceApp() {
       if (backgroundTimer !== null) window.clearTimeout(backgroundTimer)
     }
   }, [session, emailConfirmed, authLoading, dataKey, dataRetry])
+
+  const loadMoreAuctions = async () => {
+    if (!auctionCursor || auctionLoadMoreInFlight.current) return
+    const generation = feedRequestGeneration.current
+    auctionLoadMoreInFlight.current = true
+    setAuctionLoadMoreLoading(true)
+    setAuctionLoadMoreError('')
+    try {
+      const page = await getPublicAuctions(authLoading ? null : session, auctionCursor, 12)
+      if (generation !== feedRequestGeneration.current) return
+      setAuctions((current) => [...new Map([...current, ...page.items].map((auction) => [auction.id, auction])).values()])
+      setAuctionCursor(page.nextCursor)
+    } catch (caught) {
+      if (generation === feedRequestGeneration.current) {
+        setAuctionLoadMoreError(caught instanceof Error ? caught.message : 'More auctions could not be loaded.')
+      }
+    } finally {
+      if (generation === feedRequestGeneration.current) {
+        auctionLoadMoreInFlight.current = false
+        setAuctionLoadMoreLoading(false)
+      }
+    }
+  }
+
+  const loadMoreStoreListings = async () => {
+    if (!storeCursor || storeLoadMoreInFlight.current) return
+    const generation = feedRequestGeneration.current
+    storeLoadMoreInFlight.current = true
+    setStoreLoadMoreLoading(true)
+    setStoreLoadMoreError('')
+    try {
+      const page = await getStoreListings(authLoading ? null : session, storeCursor, 12)
+      if (generation !== feedRequestGeneration.current) return
+      setListings((current) => [...new Map([...current, ...page.items].map((listing) => [listing.id, listing])).values()])
+      setStoreCursor(page.nextCursor)
+    } catch (caught) {
+      if (generation === feedRequestGeneration.current) {
+        setStoreLoadMoreError(caught instanceof Error ? caught.message : 'More shop listings could not be loaded.')
+      }
+    } finally {
+      if (generation === feedRequestGeneration.current) {
+        storeLoadMoreInFlight.current = false
+        setStoreLoadMoreLoading(false)
+      }
+    }
+  }
 
   useEffect(() => {
     if (!session || !emailConfirmed) {
@@ -855,7 +925,7 @@ export default function MarketplaceApp() {
       <Suspense fallback={<main className="min-w-0 px-4 pb-24 pt-6 sm:px-6 lg:px-7 lg:pb-8 lg:pt-7"><div className="h-40 animate-pulse rounded-[18px] bg-white" /></main>}>
       {view === 'watchlist' ? <main className="min-w-0 px-4 pb-24 pt-6 sm:px-6 lg:px-7 lg:pb-8 lg:pt-7"><AuctionWatchlistPage rules={auctionWatchlistRules} recentBidAuctionIds={recentWatchlistBidIds} loading={watchlistLoading} error={watchlistError} savingId={watchlistSavingId} onSave={handleSaveAuctionRule} onRemove={handleRemoveAuctionRule} onOpenAuction={(auction) => setSelectedId(auction.id)} onRequestSignIn={() => setAuthMode('signin')} onBrowseAuctions={() => setView('feed')} signedIn={Boolean(session)} emailConfirmed={emailConfirmed} /></main> : view === 'wallet' ? <main className="min-w-0 px-4 pb-24 pt-6 sm:px-6 lg:px-7 lg:pb-8 lg:pt-7"><WalletPage key={`${currentUserId}:${emailConfirmed}`} session={session} emailConfirmed={emailConfirmed} onRequestSignIn={() => setAuthMode('signin', viewPaths.wallet)} onAddFunds={handleAddWalletFunds} /></main> : <main className="min-w-0 px-4 pb-24 pt-6 sm:px-6 lg:px-7 lg:pb-8 lg:pt-7">
         {session && !emailConfirmed && <div role="status" className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#ead9b0] bg-[#fff9e9] px-4 py-3 text-sm text-[#765b22]"><span>Confirm your email to bid, sell, message sellers, or place orders.</span><Button variant="secondary" onClick={() => void resendConfirmation()} className="min-h-8 rounded-lg px-3 text-xs">Resend confirmation</Button></div>}
-        {authLoading && dataLoading && !auctions.length ? <div className="grid min-h-72 place-items-center rounded-xl border border-[#e4eae5] bg-white text-sm text-[#849189]">Connecting to your account…</div> : dataError && !auctions.length ? <div role="alert" className="mx-auto mt-12 max-w-lg rounded-xl border border-[#f0d7d2] bg-white p-6 text-center"><h1 className="font-display text-xl font-semibold text-[#263b33]">Marketplace data unavailable</h1><p className="mt-2 break-words text-sm text-[#7a8781]">{dataError}</p><Button variant="secondary" onClick={() => { setDataError(''); setLoadedUserId(null); setDataRetry((attempt) => attempt + 1) }} className="mt-4">Retry</Button></div> : dataLoading && !auctions.length ? <div className="grid min-h-72 place-items-center rounded-xl border border-[#e4eae5] bg-white text-sm text-[#849189]">Loading live auctions…</div> : selectedAuction ? <AuctionRoom auction={selectedAuction} userId={currentUserId} autoBidRule={auctionWatchlistRules.find((rule) => rule.auctionRoomId === selectedAuction.id)} session={session} emailConfirmed={emailConfirmed} onRequestSignIn={() => setAuthMode('signin', location.pathname)} onBack={() => setSelectedId(null)} onBid={(amount) => handleBid(selectedAuction, amount)} onExpire={() => handleExpire(selectedAuction)} onNotice={showToast} onRoomUpdate={(patch) => updateRoom(selectedAuction.id, patch)} onVerdict={(decision) => handleVerdict(selectedAuction, decision)} /> : view === 'dashboard' ? <SellerDashboard key={currentUserId} auctions={sellerRows} userId={currentUserId} trustScore={trustScore} completedAuctions={completedAuctions} session={session} emailConfirmed={emailConfirmed} ownListings={ownListings} onRequestSignIn={() => setAuthMode('signin')} onListingCreated={handleListingCreated} onListingUpdated={handleListingUpdated} onAuctionCreated={handleAuctionCreated} onVerdict={handleVerdict} onNotice={showToast} /> : view === 'shop' ? <StorePage listings={listings} categories={categories} error={shopError} loading={storeLoading} cartHas={(postId) => userCart.items.some((item) => item.postId === postId)} watchlistIds={watchlistIds} onToggleSaved={(postId) => void handleToggleSaved(postId)} onAdd={(listing) => void handleAddToCart(listing)} onOpenCart={() => setView('cart')} session={session} emailConfirmed={emailConfirmed} onRequestSignIn={() => setAuthMode('signin', '/shop')} /> : view === 'cart' ? <ShoppingCartPage items={userCart.items} loading={userCart.loading} error={userCart.error} onShop={() => setView('shop')} onSetQuantity={userCart.setQuantity} onRemove={userCart.remove} onCheckout={handlePlaceOrder} onRefresh={userCart.refresh} /> : view === 'orders' ? <PurchaseHistoryPage key={currentUserId} session={session} emailConfirmed={emailConfirmed} onRequestSignIn={() => setAuthMode('signin', '/orders')} /> : <GlobalFeed auctions={auctions} categories={categories} watchlistIds={auctionWatchlistRules.map((rule) => rule.auctionRoomId)} savingWatchlistId={watchlistSavingId} watchlistLoading={watchlistLoading} currentUserId={currentUserId} onToggleWatchlist={(auction) => void handleToggleAuctionWatchlist(auction)} onOpen={(auction) => setSelectedId(auction.id)} session={session} emailConfirmed={emailConfirmed} onRequestSignIn={() => setAuthMode('signin', location.pathname)} />}
+        {authLoading && dataLoading && !auctions.length ? <div className="grid min-h-72 place-items-center rounded-xl border border-[#e4eae5] bg-white text-sm text-[#849189]">Connecting to your account…</div> : dataError && !auctions.length ? <div role="alert" className="mx-auto mt-12 max-w-lg rounded-xl border border-[#f0d7d2] bg-white p-6 text-center"><h1 className="font-display text-xl font-semibold text-[#263b33]">Marketplace data unavailable</h1><p className="mt-2 break-words text-sm text-[#7a8781]">{dataError}</p><Button variant="secondary" onClick={() => { setDataError(''); setLoadedUserId(null); setDataRetry((attempt) => attempt + 1) }} className="mt-4">Retry</Button></div> : dataLoading && !auctions.length ? <div className="grid min-h-72 place-items-center rounded-xl border border-[#e4eae5] bg-white text-sm text-[#849189]">Loading live auctions…</div> : selectedAuction ? <AuctionRoom auction={selectedAuction} userId={currentUserId} autoBidRule={auctionWatchlistRules.find((rule) => rule.auctionRoomId === selectedAuction.id)} session={session} emailConfirmed={emailConfirmed} onRequestSignIn={() => setAuthMode('signin', location.pathname)} onBack={() => setSelectedId(null)} onBid={(amount) => handleBid(selectedAuction, amount)} onExpire={() => handleExpire(selectedAuction)} onNotice={showToast} onRoomUpdate={(patch) => updateRoom(selectedAuction.id, patch)} onVerdict={(decision) => handleVerdict(selectedAuction, decision)} /> : view === 'dashboard' ? <SellerDashboard key={currentUserId} auctions={sellerRows} userId={currentUserId} trustScore={trustScore} completedAuctions={completedAuctions} session={session} emailConfirmed={emailConfirmed} ownListings={ownListings} onRequestSignIn={() => setAuthMode('signin')} onListingCreated={handleListingCreated} onListingUpdated={handleListingUpdated} onAuctionCreated={handleAuctionCreated} onVerdict={handleVerdict} onNotice={showToast} /> : view === 'shop' ? <StorePage listings={listings} categories={categories} error={shopError} loading={storeLoading} cartHas={(postId) => userCart.items.some((item) => item.postId === postId)} watchlistIds={watchlistIds} onToggleSaved={(postId) => void handleToggleSaved(postId)} onAdd={(listing) => void handleAddToCart(listing)} onOpenCart={() => setView('cart')} session={session} emailConfirmed={emailConfirmed} onRequestSignIn={() => setAuthMode('signin', '/shop')} hasMore={Boolean(storeCursor)} loadingMore={storeLoadMoreLoading} loadMoreError={storeLoadMoreError} onLoadMore={() => void loadMoreStoreListings()} /> : view === 'cart' ? <ShoppingCartPage items={userCart.items} loading={userCart.loading} error={userCart.error} onShop={() => setView('shop')} onSetQuantity={userCart.setQuantity} onRemove={userCart.remove} onCheckout={handlePlaceOrder} onRefresh={userCart.refresh} /> : view === 'orders' ? <PurchaseHistoryPage key={currentUserId} session={session} emailConfirmed={emailConfirmed} onRequestSignIn={() => setAuthMode('signin', '/orders')} /> : <GlobalFeed auctions={auctions} categories={categories} watchlistIds={auctionWatchlistRules.map((rule) => rule.auctionRoomId)} savingWatchlistId={watchlistSavingId} watchlistLoading={watchlistLoading} currentUserId={currentUserId} onToggleWatchlist={(auction) => void handleToggleAuctionWatchlist(auction)} onOpen={(auction) => setSelectedId(auction.id)} session={session} emailConfirmed={emailConfirmed} onRequestSignIn={() => setAuthMode('signin', location.pathname)} hasMore={Boolean(auctionCursor)} loadingMore={auctionLoadMoreLoading} loadMoreError={auctionLoadMoreError} onLoadMore={() => void loadMoreAuctions()} />}
       </main>}
       </Suspense>
 

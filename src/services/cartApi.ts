@@ -109,9 +109,15 @@ async function request<T>(path: string, init: RequestInit = {}, session?: Sessio
   throw new CartApiError('Could not connect to the marketplace server. Check your connection and try again.', 0, 'NETWORK_ERROR')
 }
 
-export async function getStoreListings(session?: Session | null): Promise<MarketplaceListing[]> {
-  const result = await request<{ items: ApiPost[] }>('/store', {}, session)
-  return result.items.map(normalizePost)
+export async function getStoreListings(
+  session?: Session | null,
+  cursor?: string | null,
+  limit = 12,
+): Promise<{ items: MarketplaceListing[]; nextCursor: string | null }> {
+  const params = new URLSearchParams({ limit: String(limit) })
+  if (cursor) params.set('cursor', cursor)
+  const result = await request<{ items: ApiPost[]; nextCursor: string | null }>(`/store?${params}`, {}, session)
+  return { items: result.items.map(normalizePost), nextCursor: result.nextCursor }
 }
 
 export async function getCart(session?: Session | null): Promise<ShoppingCartItem[]> {
