@@ -329,7 +329,7 @@ export function SellerVerificationPage({ session, emailConfirmed, onRequestSignI
                   <label className="block text-xs font-semibold text-[#52645a]"><span className="mb-1.5 block">ID type</span><select value={manualIdType} onChange={(event) => {
                     setManualIdType(event.target.value as 'NIN' | 'BVN')
                     setFieldErrors((current) => ({ ...current, idNumber: undefined }))
-                  }} className="h-11 w-full rounded-xl border border-[#dfe7e1] bg-white px-3 text-sm text-[#273a30] outline-none focus:border-[#86a995]">
+                  }} className="app-select h-11 w-full rounded-xl border border-[#dfe7e1] bg-white px-3 text-sm text-[#273a30] outline-none focus:border-[#86a995]">
                     <option value="NIN">NIN</option>
                     <option value="BVN">BVN</option>
                   </select></label>
@@ -343,7 +343,7 @@ export function SellerVerificationPage({ session, emailConfirmed, onRequestSignI
                     <label className="block text-xs font-semibold text-[#52645a]"><span className="mb-1.5 block">Payout bank</span><select value={bankCode} onChange={(event) => {
                       setBankCode(event.target.value)
                       setFieldErrors((current) => ({ ...current, bankCode: undefined }))
-                    }} aria-invalid={Boolean(fieldErrors.bankCode)} disabled={banksLoading || banks.length === 0 || identityBusy} required={paystackProvider} className="h-11 w-full rounded-xl border border-[#dfe7e1] bg-white px-3 text-sm text-[#273a30] outline-none focus:border-[#86a995] disabled:bg-[#f4f6f4]"><option value="">{banks.length ? 'Choose your bank' : banksLoading ? 'Loading banks…' : 'Banks unavailable'}</option>{banks.map((bank) => <option key={bank.code} value={bank.code}>{bank.name}</option>)}</select>{fieldErrors.bankCode && <span role="alert" className="mt-1 block text-xs font-medium text-[#a34237]">{fieldErrors.bankCode}</span>}{bankLoadError && <span role="alert" className="mt-1 block text-xs font-medium text-[#a34237]">{bankLoadError} <button type="button" onClick={() => void loadBanks()} className="font-semibold underline">Retry</button></span>}</label>
+                    }} aria-invalid={Boolean(fieldErrors.bankCode)} disabled={banksLoading || banks.length === 0 || identityBusy} required={paystackProvider} className="app-select h-11 w-full rounded-xl border border-[#dfe7e1] bg-white px-3 text-sm text-[#273a30] outline-none focus:border-[#86a995] disabled:bg-[#f4f6f4]"><option value="">{banks.length ? 'Choose your bank' : banksLoading ? 'Loading banks…' : 'Banks unavailable'}</option>{banks.map((bank) => <option key={bank.code} value={bank.code}>{bank.name}</option>)}</select>{fieldErrors.bankCode && <span role="alert" className="mt-1 block text-xs font-medium text-[#a34237]">{fieldErrors.bankCode}</span>}{bankLoadError && <span role="alert" className="mt-1 block text-xs font-medium text-[#a34237]">{bankLoadError} <button type="button" onClick={() => void loadBanks()} className="font-semibold underline">Retry</button></span>}</label>
                     <label className="block text-xs font-semibold text-[#52645a]"><span className="mb-1.5 block">Payout account number</span><input type="text" inputMode="numeric" autoComplete="off" minLength={10} maxLength={10} pattern="[0-9]{10}" value={accountNumber} onChange={(event) => {
                     const nextValue = event.target.value.replace(/\D/g, '').slice(0, 10)
                     setAccountNumber(nextValue)

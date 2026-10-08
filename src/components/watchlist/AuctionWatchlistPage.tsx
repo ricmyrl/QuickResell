@@ -164,7 +164,7 @@ function AuctionRuleCard({ auction, rule, draft, onDraftChange, onSave, onRemove
       </div>
       <div className="grid w-full grid-cols-2 gap-2 sm:grid-cols-4">
         <label className="text-[11px] font-semibold text-[#526c58]">Bidding strategy
-          <select aria-label={`Bidding strategy for ${auction.title}`} value={draft.strategy} onChange={(event) => onDraftChange({ strategy: event.target.value as BidStrategy, confirmed: false })} className="mt-1 h-10 w-full rounded-lg border border-[#cbd9c9] bg-[#f8fbf7] px-2 text-sm font-medium text-[#293e31] outline-none focus:border-[#78977a]">
+          <select aria-label={`Bidding strategy for ${auction.title}`} value={draft.strategy} onChange={(event) => onDraftChange({ strategy: event.target.value as BidStrategy, confirmed: false })} className="app-select mt-1 h-10 w-full rounded-lg border border-[#cbd9c9] bg-[#f8fbf7] px-2 text-sm font-medium text-[#293e31] outline-none focus:border-[#78977a]">
             <option value="STANDARD">Standard</option>
             <option value="JUMP_BID">Jump bid</option>
             <option value="SNIPER">Sniper</option>

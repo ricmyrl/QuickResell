@@ -512,7 +512,7 @@ function NavigationAssistant({ auctions, listings, dataReady, onNavigate, onOpen
         </div>
         <label className="mb-2 block text-[11px] font-semibold text-[#42564a]">
           Topic
-          <select value={supportCategory} onChange={(event) => setSupportCategory(event.target.value)} className="mt-1 w-full rounded-lg border border-[#dfe7df] bg-white px-3 py-2 text-[12px] text-[#2c4137] outline-none focus:border-[#9cae9c]">
+          <select value={supportCategory} onChange={(event) => setSupportCategory(event.target.value)} className="app-select mt-1 w-full rounded-lg border border-[#dfe7df] bg-white px-3 py-2 text-[12px] text-[#2c4137] outline-none focus:border-[#9cae9c]">
             <option value="BIDDING">Bidding</option>
             <option value="SHOPPING">Shopping</option>
             <option value="SELLING">Selling</option>
