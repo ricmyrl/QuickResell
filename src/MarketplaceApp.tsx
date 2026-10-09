@@ -781,6 +781,8 @@ export default function MarketplaceApp() {
     } else if (notification.entityType === 'ORDER' || notification.entityType === 'ORDER_ITEM') {
       setSelectedId(null)
       setView('orders')
+    } else if (notification.entityType === 'SELLER_PAYOUT') {
+      openSellerStudio()
     }
   }
 
