@@ -19,6 +19,8 @@ export type Auction = {
   image: string
   startingPrice: number
   currentHighestBid: number
+  platformFeeCents?: number
+  platformFeeEnabled?: boolean
   endsAt: string
   status: AuctionStatus
   isPublic: boolean
@@ -117,6 +119,7 @@ export type PurchaseOrderItem = {
   title: string
   quantity: number
   unitPriceCents: number
+  sellerFeeCents: number
   fulfillmentStatus: OrderItemFulfillmentStatus
   fulfillmentMethod: FulfillmentMethod | null
   seller?: { displayName: string | null }

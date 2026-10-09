@@ -339,6 +339,8 @@ export function AuctionRoom({ auction, userId, autoBidRule, onBack, onBid, onExp
               )}
             </div>
 
+            {auction.platformFeeEnabled && <p className="mt-2 text-[10px] leading-4 text-[#87938d]">After every 2 accepted bids, the amount of the second increase is deducted from the seller's proceeds as QuickResell's fee. Automated jump bids count once; the winner pays the displayed bid.</p>}
+
             {/* Main Action Button */}
             <Button 
               disabled={!isActive || bidding || isSeller || !isValidBid} 

@@ -183,6 +183,7 @@ function AuctionRuleCard({ auction, rule, draft, onDraftChange, onSave, onRemove
           <input aria-label={`Margin of safety for ${auction.title}`} type="number" min="0" max="100" step="1" value={draft.marginOfSafety} onChange={(event) => onDraftChange({ marginOfSafety: event.target.value, confirmed: false })} className="mt-1 h-9 w-full rounded-lg border border-[#dfe7de] px-2 text-xs text-[#334638]" />
         </label>}
       </div>
+      {auction.platformFeeEnabled && <p className="w-full text-[10px] leading-4 text-[#87938b]">After every 2 accepted bids, the amount of the second increase is deducted from the seller's proceeds as QuickResell's fee. Automated jump bids count once; the winner pays the displayed bid.</p>}
       <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
         <label className="flex items-center gap-2 rounded-lg bg-[#f4f6f2] px-2.5 py-2 text-[10px] font-semibold text-[#647466]">
           <input type="checkbox" checked={draft.autoBidEnabled && active} disabled={!active} onChange={(event) => onDraftChange({ autoBidEnabled: event.target.checked, confirmed: false })} className="size-3.5 accent-[#456d4c]" />Auto-bid
