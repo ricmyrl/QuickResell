@@ -47,6 +47,9 @@ export type AccountProfile = {
   avatarUrl: string | null
   preferredDormOrCampus: string | null
   budgetPreference: number | null
+  payoutStatus: SellerCheckStatus
+  payoutBankName: string | null
+  payoutAccountLast4: string | null
 }
 export type SellerVerificationStatus = 'NOT_STARTED' | 'PENDING' | 'VERIFIED' | 'REJECTED' | 'REVIEW_REQUIRED'
 export type SellerCheckStatus = 'NOT_STARTED' | 'PENDING' | 'VERIFIED' | 'REJECTED' | 'REVIEW_REQUIRED'

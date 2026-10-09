@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import type { Session } from '@supabase/supabase-js'
-import { AlertTriangle, Check, ChevronDown, ImagePlus, KeyRound, LoaderCircle, LogOut, Mail, MapPin, ShieldCheck, Trash2, UserRound, X } from 'lucide-react'
+import { AlertTriangle, Check, ChevronDown, ImagePlus, KeyRound, Landmark, LoaderCircle, LogOut, Mail, MapPin, ShieldCheck, Trash2, UserRound, X } from 'lucide-react'
 import { deleteAccount, getAccountProfile, updateAccountPreferences, type AccountProfile } from '../../services/api'
 import { supabase } from '../../lib/supabase'
 import { Button, IconButton } from '../common/Button'
@@ -29,6 +29,9 @@ function AccountPage({ session, section, onClose, onDeleted }: {
     avatarUrl: typeof session.user.user_metadata.avatar_url === 'string' ? session.user.user_metadata.avatar_url : null,
     preferredDormOrCampus: '',
     budgetPreference: null,
+    payoutStatus: 'NOT_STARTED',
+    payoutBankName: null,
+    payoutAccountLast4: null,
   })
   const [name, setName] = useState(profile.displayName ?? '')
   const [avatarFile, setAvatarFile] = useState<File | null>(null)
@@ -204,10 +207,16 @@ function AccountPage({ session, section, onClose, onDeleted }: {
           {notice && <div role="status" className="mb-4 flex items-start gap-2 rounded-xl border border-[#dceadf] bg-[#f2f8f2] px-3.5 py-3 text-xs leading-5 text-[#41694d]"><Check size={15} className="mt-0.5 shrink-0" />{notice}</div>}
 
           {section === 'profile' && <form onSubmit={(event) => void saveProfile(event)} className="space-y-5">
-            <div><h3 className="font-display text-lg font-semibold text-[#2b4035]">Public profile</h3><p className="mt-1 text-xs leading-5 text-[#7f8c84]">These details help campus buyers and sellers recognize you. Your email is never shown as your public name.</p></div>
+            <div><h3 className="font-display text-lg font-semibold text-[#2b4035]">Profile</h3><p className="mt-1 text-xs leading-5 text-[#7f8c84]">Your display name and photo help campus buyers and sellers recognize you. Your email and payout details are private.</p></div>
             <div className="flex items-center gap-3"><span className="grid size-16 shrink-0 place-items-center overflow-hidden rounded-full bg-[#e9f0e8] text-lg font-bold text-[#456555]">{avatarPreviewUrl || profile.avatarUrl ? <img src={avatarPreviewUrl ?? profile.avatarUrl ?? ''} alt="Profile avatar" className="size-full object-cover" /> : name.trim().slice(0, 1).toUpperCase()}</span><div className="min-w-0"><label className="inline-flex min-h-9 cursor-pointer items-center gap-2 rounded-lg border border-[#dfe7e1] px-3 text-xs font-semibold text-[#456555] transition hover:bg-[#f5f8f5]"><ImagePlus size={14} />{avatarFile ? 'Choose another photo' : 'Add profile photo'}<input type="file" accept="image/jpeg,image/png,image/webp" className="sr-only" onChange={(event) => { const file = event.target.files?.[0] ?? null; setAvatarFile(file); setAvatarPreviewUrl((current) => { if (current) URL.revokeObjectURL(current); return file ? URL.createObjectURL(file) : null }); event.target.value = '' }} /></label><p className="mt-1.5 text-[10px] text-[#87938d]">JPEG, PNG, or WebP · up to 5 MB</p></div></div>
             <label className="block"><span className="mb-1.5 block text-xs font-semibold text-[#52645a]">Display name</span><input required minLength={2} maxLength={80} autoComplete="name" value={name} onChange={(event) => setName(event.target.value)} className="h-11 w-full rounded-xl border border-[#dfe7e1] bg-white px-3.5 text-sm text-[#273a30] outline-none transition focus:border-[#87a58e] focus:ring-2 focus:ring-[#e5efe7]" placeholder="How people will see you" /></label>
             <div className="rounded-xl border border-[#e9eee9] bg-[#f8faf8] p-3.5"><div className="flex items-center gap-2 text-xs font-semibold text-[#4d6557]"><Mail size={14} />Sign-in email</div><p className="mt-1.5 break-all text-xs text-[#718078]">{profile.email ?? 'Email not available'}</p><p className="mt-1 text-[10px] leading-4 text-[#909b94]">To change your email, use Sign-in &amp; security. A confirmation is required.</p></div>
+            <div className="rounded-xl border border-[#e9eee9] bg-[#f8faf8] p-3.5">
+              <div className="flex items-center gap-2 text-xs font-semibold text-[#4d6557]"><Landmark size={14} />Seller payout account</div>
+              {profile.payoutStatus === 'VERIFIED' && profile.payoutBankName && profile.payoutAccountLast4
+                ? <><p className="mt-1.5 text-xs text-[#30483a]">{profile.payoutBankName} · account ending {profile.payoutAccountLast4}</p><p className="mt-1 text-[10px] leading-4 text-[#909b94]">Verified for payouts. Only the bank and last four digits are shown here.</p></>
+                : <p className="mt-1.5 text-xs text-[#718078]">No verified payout bank account is linked to your seller profile.</p>}
+            </div>
             <Button disabled={busy} className="min-w-32 justify-center">{busy ? <><LoaderCircle size={15} className="animate-spin" />Saving…</> : 'Save profile'}</Button>
           </form>}
 
