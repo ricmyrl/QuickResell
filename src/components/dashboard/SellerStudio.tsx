@@ -11,8 +11,9 @@ import { useCurrency } from '../../lib/CurrencyContext'
 import { getCurrentLocation } from '../../lib/geolocation'
 import { getSellerVerification } from '../../services/api'
 import { updateListingLocation } from '../../services/listingApi'
-import { CartApiError, getSellerOrders, updateOrderFulfillment } from '../../services/cartApi'
+import { CartApiError, cashOutSellerOrderItem, getSellerOrders, updateOrderFulfillment } from '../../services/cartApi'
 import { SellerVerificationPage } from './SellerVerificationPage'
+import { verifyPasskeyForAction } from '../../services/passkeyVerification'
 
 type StudioSection = 'overview' | 'inventory' | 'auctions' | 'orders'
 type StudioProps = {
@@ -42,7 +43,7 @@ function payoutStatusMessage(status: NonNullable<SellerOrderItem['sellerPayout']
   switch (status) {
     case 'SUCCESS': return 'Paystack reports the transfer as successful. Check your bank statement to confirm receipt.'
     case 'PROCESSING': return 'Seller transfer is processing.'
-    case 'PENDING': return 'Seller transfer is pending.'
+    case 'PENDING': return 'Payout is available to cash out once fulfillment is ready.'
     case 'FAILED': return 'Seller transfer failed. Contact support before any retry.'
     case 'REVERSED': return 'Seller transfer was reversed. Contact support.'
     case 'REVIEW_REQUIRED': return 'Transfer outcome needs reconciliation. Contact support.'
@@ -65,6 +66,7 @@ function SellerStudio({ auctions, userId, trustScore, completedAuctions, session
   const [ordersErrorRequestId, setOrdersErrorRequestId] = useState('')
   const [ordersReloadKey, setOrdersReloadKey] = useState(0)
   const [fulfillmentBusyId, setFulfillmentBusyId] = useState<string | null>(null)
+  const [cashoutBusyId, setCashoutBusyId] = useState<string | null>(null)
   const [sellerVerificationComplete, setSellerVerificationComplete] = useState(false)
 
   useEffect(() => {
@@ -168,6 +170,31 @@ function SellerStudio({ auctions, userId, trustScore, completedAuctions, session
     }
   }
 
+  const cashOut = async (item: SellerOrderItem) => {
+    if (!session) return
+    setCashoutBusyId(item.id)
+    setOrdersError('')
+    setOrdersErrorRequestId('')
+    try {
+      const payout = await verifyPasskeyForAction(session, () => cashOutSellerOrderItem(item.id, session))
+      setOrderItems((current) => current.map((orderItem) =>
+        orderItem.id === item.id ? { ...orderItem, sellerPayout: payout } : orderItem,
+      ))
+      onNotice(
+        payout.status === 'SUCCESS'
+          ? 'Paystack reports the seller transfer as successful. Check your bank account to confirm receipt.'
+          : 'Cash-out requested. Refresh the sale to see Paystack transfer updates.',
+      )
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : 'The payout could not be requested.'
+      setOrdersError(message)
+      setOrdersErrorRequestId(caught instanceof CartApiError ? caught.requestId ?? '' : '')
+      onNotice(message, 'error')
+    } finally {
+      setCashoutBusyId(null)
+    }
+  }
+
   if (location.pathname === '/seller/products/new') {
     return <CreateListingPage onClose={() => navigate('/seller')} session={session} onCreated={onListingCreated} onAuctionCreated={onAuctionCreated} />
   }
@@ -245,9 +272,10 @@ function SellerStudio({ auctions, userId, trustScore, completedAuctions, session
       {ordersError && <div role="alert" className="flex flex-wrap items-center justify-between gap-3 border-b border-[#f0d7d2] bg-[#fff5f2] px-4 py-3 text-sm text-[#a34237]"><div><p>{ordersError}</p>{ordersErrorRequestId && <p className="mt-1 text-xs">Support reference: {ordersErrorRequestId}</p>}</div><Button variant="secondary" onClick={() => { setOrdersLoading(true); setOrdersError(''); setOrdersErrorRequestId(''); setOrdersReloadKey((value) => value + 1) }} className="min-h-8 px-3 text-xs">Try again</Button></div>}
       {ordersLoading ? <p className="px-4 py-8 text-center text-sm text-[#849087]">Loading sales…</p> : orderItems.length === 0 ? <p className="px-4 py-8 text-center text-sm text-[#849087]">Paid orders will appear here after a buyer checks out.</p> : <div className="divide-y divide-[#eef2ee]">{orderItems.map((item) => <article key={item.id} className="flex flex-wrap items-center gap-3 px-4 py-4 sm:px-5">
         <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-[#edf4ed] text-[#587b62]">{item.fulfillmentStatus === 'SHIPPED' ? <Truck size={18} /> : <PackageCheck size={18} />}</span>
-        <div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold text-[#34483b]">{item.quantity} × {item.title}</p><p className="mt-1 text-xs text-[#829087]">Buyer: {item.order.buyer.displayName || 'QuickResell buyer'} · {item.paymentStatus === 'PAID' ? 'Paid' : 'Payment not confirmed'} · {item.fulfillmentStatus === 'PENDING_HANDOFF' ? 'Awaiting fulfillment' : item.fulfillmentStatus === 'READY_FOR_PICKUP' ? 'Ready for pickup' : item.fulfillmentStatus === 'SHIPPED' ? 'Shipped' : 'Received'}</p>{item.sellerPayout ? <p className="mt-1 text-xs font-medium text-[#58745f]">Payout: {payoutStatusMessage(item.sellerPayout.status)}</p> : item.paymentStatus === 'PAID' && <p className="mt-1 text-xs text-[#96713f]">Payout status is not tracked for this older order. Check Paystack before treating it as unpaid.</p>}<p className="mt-0.5 text-[11px] text-[#929d96]">Order {item.order.id} · {new Date(item.order.createdAt).toLocaleDateString()}</p></div>
+        <div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold text-[#34483b]">{item.quantity} × {item.title}</p><p className="mt-1 text-xs text-[#829087]">Buyer: {item.order.buyer.displayName || 'QuickResell buyer'} · {item.paymentStatus === 'PAID' ? 'Paid' : 'Payment not confirmed'} · {item.fulfillmentStatus === 'PENDING_HANDOFF' ? 'Awaiting fulfillment' : item.fulfillmentStatus === 'READY_FOR_PICKUP' ? 'Ready for pickup' : item.fulfillmentStatus === 'SHIPPED' ? 'Shipped' : 'Received'}</p>{item.sellerPayout ? <p className="mt-1 text-xs font-medium text-[#58745f]">Payout: {item.sellerPayout.status === 'PENDING' && item.fulfillmentStatus === 'PENDING_HANDOFF' ? 'Cash out becomes available after you mark this item pickup-ready or shipped.' : payoutStatusMessage(item.sellerPayout.status)}</p> : item.paymentStatus === 'PAID' && <p className="mt-1 text-xs text-[#96713f]">Payout status is not tracked for this older order. Check Paystack before treating it as unpaid.</p>}<p className="mt-0.5 text-[11px] text-[#929d96]">Order {item.order.id} · {new Date(item.order.createdAt).toLocaleDateString()}</p></div>
         <span className="text-right"><span className="block text-sm font-semibold text-[#405549]">{currency.format((item.unitPriceCents * item.quantity - (item.sellerFeeCents ?? 0)) / 100)}</span>{(item.sellerFeeCents ?? 0) > 0 && <span className="mt-1 block text-[10px] text-[#98a19b]">after {currency.format((item.sellerFeeCents ?? 0) / 100)} fee</span>}</span>
         {item.paymentStatus === 'PAID' && item.fulfillmentStatus === 'PENDING_HANDOFF' && <div className="flex w-full gap-2 sm:w-auto"><Button disabled={!emailConfirmed || fulfillmentBusyId === item.id} onClick={() => void setFulfillment(item, 'PICKUP')} icon={<MapPin size={14} />} className="min-h-9 px-3 text-xs">Pickup ready</Button><Button disabled={!emailConfirmed || fulfillmentBusyId === item.id} onClick={() => void setFulfillment(item, 'SHIPPING')} icon={<Truck size={14} />} className="min-h-9 px-3 text-xs">Mark shipped</Button></div>}
+        {item.sellerPayout && (item.sellerPayout.status === 'PENDING' || item.sellerPayout.status === 'BLOCKED') && ['READY_FOR_PICKUP', 'SHIPPED', 'COMPLETED'].includes(item.fulfillmentStatus) && <Button disabled={!emailConfirmed || cashoutBusyId === item.id} onClick={() => void cashOut(item)} icon={<CircleDollarSign size={14} />} className="min-h-9 px-3 text-xs">{cashoutBusyId === item.id ? 'Requesting…' : 'Cash out'}</Button>}
       </article>)}</div>}
       {!emailConfirmed && session && <p className="border-t border-[#edf1ed] px-4 py-3 text-xs text-[#89958e]">Confirm your email before updating order fulfillment.</p>}
     </section>}

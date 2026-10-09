@@ -127,9 +127,11 @@ export type PurchaseOrderItem = {
 export type SellerOrderItem = PurchaseOrderItem & {
   paymentStatus: 'PAID' | 'UNPAID'
   sellerPayout?: {
+    id: string
     status: 'BLOCKED' | 'PENDING' | 'PROCESSING' | 'SUCCESS' | 'FAILED' | 'REVERSED' | 'REVIEW_REQUIRED'
     amountKobo: number | null
     updatedAt: string
+    completedAt: string | null
   } | null
   order: {
     id: string
