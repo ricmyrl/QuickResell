@@ -897,7 +897,7 @@ export default function MarketplaceApp() {
     </nav>
 
 
-    {toast && <div role="status" className={`toast-enter fixed bottom-20 left-1/2 z-[110] flex w-[calc(100%-32px)] max-w-md -translate-x-1/2 items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium text-white shadow-xl lg:bottom-6 ${toast.kind === 'error' ? 'bg-[#ad473c]' : 'bg-[#274c3d]'}`}><span className="flex-1">{toast.message}</span><IconButton label="Dismiss notification" className="size-8 text-white hover:bg-white/15 hover:text-white" onClick={() => setToast(null)}><X size={15} /></IconButton></div>}
+    {toast && <div role="status" className={`toast-enter fixed bottom-20 left-1/2 z-[110] flex w-[calc(100%-32px)] max-w-md items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium text-white shadow-xl lg:bottom-6 ${toast.kind === 'error' ? 'bg-[#ad473c]' : 'bg-[#274c3d]'}`}><span className="flex-1">{toast.message}</span><IconButton label="Dismiss notification" className="size-8 text-white hover:bg-white/15 hover:text-white" onClick={() => setToast(null)}><X size={15} /></IconButton></div>}
       {(selectedAuction || view === 'shop') && <aside style={{ right: 'max(0px, calc(50vw - 820px))' }} className="fixed top-[68px] hidden h-[calc(100vh-68px)] w-[270px] border-l border-[#e6ebe7] bg-[#f9faf9] xl:block"><BidAdvert auction={selectedAuction ?? auctions.filter((item) => item.status === 'ACTIVE').sort((a, b) => new Date(a.endsAt).getTime() - new Date(b.endsAt).getTime())[0] ?? null} onOpen={(auction) => { setSelectedId(auction.id); setViewState('feed') }} /></aside>}
     </div>}
   </Suspense>

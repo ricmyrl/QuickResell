@@ -2,6 +2,7 @@ import type { Session } from '@supabase/supabase-js'
 import { resolveSession } from '../lib/resolveSession'
 import type { Auction, IncrementCurveType, ListingReactionCounts, ListingReactionType, MarketplaceListing, ProductComment } from '../types'
 import type { Coordinates } from '../lib/geolocation'
+import { optimizeListingImage } from '../lib/optimizeListingImage'
 
 const pageHostApiUrl = typeof window !== 'undefined' && window.location.protocol === 'http:'
   ? `http://${window.location.hostname}:3000/api`
@@ -150,10 +151,12 @@ export async function createListing(
     if (image.size > maxImageSize) throw new Error('Each image must be 10 MB or smaller.')
   }
 
+  const optimizedImages: File[] = []
+  for (const image of images) optimizedImages.push(await optimizeListingImage(image))
   const uploadedPaths: string[] = []
   try {
     const imageUrls: string[] = []
-    for (const image of images) {
+    for (const image of optimizedImages) {
       const extension = image.type.split('/')[1].replace('jpeg', 'jpg')
       const path = `${session.user.id}/${crypto.randomUUID()}.${extension}`
       const { data, error } = await storage.from(storageBucket).upload(path, image, {
