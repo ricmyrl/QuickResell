@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import type { ReactNode } from 'react'
 import type { Session } from '@supabase/supabase-js'
-import { Activity, ArrowDownRight, ArrowRight, BadgeCheck, Boxes, Check, ChevronRight, CircleDollarSign, Clock3, ImagePlus, LayoutGrid, ListFilter, MapPin, Package, PackageCheck, Search, ShieldCheck, ShieldHalf, ShieldAlert, Sparkles, Store, Truck } from 'lucide-react'
+import { Activity, ArrowDownRight, ArrowRight, BadgeCheck, Boxes, Check, ChevronRight, CircleDollarSign, Clock3, ImagePlus, LayoutGrid, ListFilter, MapPin, Package, PackageCheck, RefreshCw, Search, ShieldCheck, ShieldHalf, ShieldAlert, Sparkles, Store, Truck } from 'lucide-react'
 import type { Auction, FulfillmentMethod, MarketplaceListing, SellerOrderItem, Verdict } from '../../types'
 import { Button } from '../common/Button'
 import { CreateListingPage } from './CreateListingModal'
@@ -37,6 +37,18 @@ const sections: Array<{ id: StudioSection; label: string; icon: typeof LayoutGri
   { id: 'auctions', label: 'Auctions', icon: Activity },
   { id: 'orders', label: 'Sales', icon: PackageCheck },
 ]
+
+function payoutStatusMessage(status: NonNullable<SellerOrderItem['sellerPayout']>['status']): string {
+  switch (status) {
+    case 'SUCCESS': return 'Paystack reports the transfer as successful. Check your bank statement to confirm receipt.'
+    case 'PROCESSING': return 'Seller transfer is processing.'
+    case 'PENDING': return 'Seller transfer is pending.'
+    case 'FAILED': return 'Seller transfer failed. Contact support before any retry.'
+    case 'REVERSED': return 'Seller transfer was reversed. Contact support.'
+    case 'REVIEW_REQUIRED': return 'Transfer outcome needs reconciliation. Contact support.'
+    case 'BLOCKED': return 'Seller transfer is blocked. Complete payout verification or contact support.'
+  }
+}
 
 function SellerStudio({ auctions, userId, trustScore, completedAuctions, session, emailConfirmed, ownListings, onRequestSignIn, onListingCreated, onListingUpdated, onAuctionCreated, onVerdict, onNotice }: StudioProps) {
   const { formatUsd } = useCurrency()
@@ -229,11 +241,11 @@ function SellerStudio({ auctions, userId, trustScore, completedAuctions, session
     </div>}
 
     {section === 'orders' && <section className="overflow-hidden rounded-[14px] border border-[#e2e9e3] bg-white">
-      <div className="border-b border-[#edf1ed] px-4 py-4 sm:px-5"><h2 className="font-display text-base font-semibold text-[#263c31]">Paid sales</h2><p className="mt-1 text-xs text-[#849087]">Choose pickup or shipping for each paid item. Buyers can track the update and confirm receipt.</p></div>
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#edf1ed] px-4 py-4 sm:px-5"><div><h2 className="font-display text-base font-semibold text-[#263c31]">Paid sales</h2><p className="mt-1 text-xs text-[#849087]">Choose pickup or shipping for each paid item. Buyers can track the update and confirm receipt.</p></div><Button variant="secondary" disabled={ordersLoading} onClick={() => { setOrdersLoading(true); setOrdersError(''); setOrdersErrorRequestId(''); setOrdersReloadKey((value) => value + 1) }} icon={<RefreshCw size={14} />} className="min-h-8 px-3 text-xs">Refresh status</Button></div>
       {ordersError && <div role="alert" className="flex flex-wrap items-center justify-between gap-3 border-b border-[#f0d7d2] bg-[#fff5f2] px-4 py-3 text-sm text-[#a34237]"><div><p>{ordersError}</p>{ordersErrorRequestId && <p className="mt-1 text-xs">Support reference: {ordersErrorRequestId}</p>}</div><Button variant="secondary" onClick={() => { setOrdersLoading(true); setOrdersError(''); setOrdersErrorRequestId(''); setOrdersReloadKey((value) => value + 1) }} className="min-h-8 px-3 text-xs">Try again</Button></div>}
       {ordersLoading ? <p className="px-4 py-8 text-center text-sm text-[#849087]">Loading sales…</p> : orderItems.length === 0 ? <p className="px-4 py-8 text-center text-sm text-[#849087]">Paid orders will appear here after a buyer checks out.</p> : <div className="divide-y divide-[#eef2ee]">{orderItems.map((item) => <article key={item.id} className="flex flex-wrap items-center gap-3 px-4 py-4 sm:px-5">
         <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-[#edf4ed] text-[#587b62]">{item.fulfillmentStatus === 'SHIPPED' ? <Truck size={18} /> : <PackageCheck size={18} />}</span>
-        <div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold text-[#34483b]">{item.quantity} × {item.title}</p><p className="mt-1 text-xs text-[#829087]">Buyer: {item.order.buyer.displayName || 'QuickResell buyer'} · {item.paymentStatus === 'PAID' ? 'Paid' : 'Payment not confirmed'} · {item.fulfillmentStatus === 'PENDING_HANDOFF' ? 'Awaiting fulfillment' : item.fulfillmentStatus === 'READY_FOR_PICKUP' ? 'Ready for pickup' : item.fulfillmentStatus === 'SHIPPED' ? 'Shipped' : 'Received'}</p><p className="mt-0.5 text-[11px] text-[#929d96]">Order {item.order.id} · {new Date(item.order.createdAt).toLocaleDateString()}</p></div>
+        <div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold text-[#34483b]">{item.quantity} × {item.title}</p><p className="mt-1 text-xs text-[#829087]">Buyer: {item.order.buyer.displayName || 'QuickResell buyer'} · {item.paymentStatus === 'PAID' ? 'Paid' : 'Payment not confirmed'} · {item.fulfillmentStatus === 'PENDING_HANDOFF' ? 'Awaiting fulfillment' : item.fulfillmentStatus === 'READY_FOR_PICKUP' ? 'Ready for pickup' : item.fulfillmentStatus === 'SHIPPED' ? 'Shipped' : 'Received'}</p>{item.sellerPayout ? <p className="mt-1 text-xs font-medium text-[#58745f]">Payout: {payoutStatusMessage(item.sellerPayout.status)}</p> : item.paymentStatus === 'PAID' && <p className="mt-1 text-xs text-[#96713f]">Payout status is not tracked for this older order. Check Paystack before treating it as unpaid.</p>}<p className="mt-0.5 text-[11px] text-[#929d96]">Order {item.order.id} · {new Date(item.order.createdAt).toLocaleDateString()}</p></div>
         <span className="text-right"><span className="block text-sm font-semibold text-[#405549]">{currency.format((item.unitPriceCents * item.quantity - (item.sellerFeeCents ?? 0)) / 100)}</span>{(item.sellerFeeCents ?? 0) > 0 && <span className="mt-1 block text-[10px] text-[#98a19b]">after {currency.format((item.sellerFeeCents ?? 0) / 100)} fee</span>}</span>
         {item.paymentStatus === 'PAID' && item.fulfillmentStatus === 'PENDING_HANDOFF' && <div className="flex w-full gap-2 sm:w-auto"><Button disabled={!emailConfirmed || fulfillmentBusyId === item.id} onClick={() => void setFulfillment(item, 'PICKUP')} icon={<MapPin size={14} />} className="min-h-9 px-3 text-xs">Pickup ready</Button><Button disabled={!emailConfirmed || fulfillmentBusyId === item.id} onClick={() => void setFulfillment(item, 'SHIPPING')} icon={<Truck size={14} />} className="min-h-9 px-3 text-xs">Mark shipped</Button></div>}
       </article>)}</div>}
