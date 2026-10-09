@@ -87,6 +87,11 @@ export function SellerVerificationPage({ session, emailConfirmed, onRequestSignI
     accountNumber?: string
     consent?: string
   }>({})
+  const fullyVerified = verification?.identityStatus === 'VERIFIED' && verification.payoutStatus === 'VERIFIED'
+
+  useEffect(() => {
+    if (!loading && fullyVerified) onVerified()
+  }, [loading, fullyVerified, onVerified])
 
   const refreshVerification = useCallback(async () => {
     if (!session || !emailConfirmed) return
@@ -294,8 +299,6 @@ export function SellerVerificationPage({ session, emailConfirmed, onRequestSignI
   if (!emailConfirmed) return <section className="mx-auto max-w-3xl rounded-[18px] border border-[#ead9b0] bg-[#fff9e9] p-6"><h1 className="font-display text-xl font-semibold text-[#4f442e]">Confirm your email first</h1><p className="mt-2 text-sm leading-6 text-[#7a6a45]">Confirm your QuickResell email before starting seller identity verification.</p></section>
 
   const identityStatus = verification?.identityStatus ?? 'NOT_STARTED'
-  const payoutStatus = verification?.payoutStatus ?? 'NOT_STARTED'
-  const fullyVerified = identityStatus === 'VERIFIED' && payoutStatus === 'VERIFIED'
   const paystackProvider = manualPaystackFlow || verificationProvider === 'paystack'
   const paystackLegalName = manualLegalName.trim() ||
     (typeof session.user.user_metadata?.full_name === 'string' ? session.user.user_metadata.full_name.trim() : '')
