@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { BadgeCheck, Camera, CircleAlert, Fingerprint, LoaderCircle, LockKeyhole, ShieldCheck } from 'lucide-react'
 import {
@@ -13,6 +13,7 @@ import {
   type SellerCheckStatus,
   type SellerVerification,
   type SellerVerificationProvider,
+  verifySellerPayoutAccount,
 } from '../../services/api'
 import { Button } from '../common/Button'
 
@@ -294,6 +295,35 @@ export function SellerVerificationPage({ session, emailConfirmed, onRequestSignI
     }
   }
 
+  const submitPayoutAccount = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const nextFieldErrors: typeof fieldErrors = {}
+    if (!bankCode) nextFieldErrors.bankCode = 'Select your bank.'
+    if (!/^\d{10}$/.test(accountNumber)) nextFieldErrors.accountNumber = 'Enter a valid 10-digit account number.'
+    setFieldErrors(nextFieldErrors)
+    if (Object.keys(nextFieldErrors).length) return
+
+    setIdentityBusy(true)
+    setError('')
+    setNotice('')
+    try {
+      const result = await verifySellerPayoutAccount(bankCode, accountNumber, session)
+      setAccountNumber('')
+      setVerification((current) => current ? {
+        ...current,
+        payoutStatus: 'VERIFIED',
+        bankName: result.bankName,
+        bankAccountLast4: result.accountLast4,
+        payoutVerifiedAt: new Date().toISOString(),
+      } : current)
+      setNotice(`${result.bankName} account ending ${result.accountLast4} is verified and ready for seller payouts.`)
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'The payout account could not be verified.')
+    } finally {
+      setIdentityBusy(false)
+    }
+  }
+
   if (!session) return <section className="mx-auto max-w-3xl rounded-[18px] border border-[#e3eae4] bg-white p-6 text-center"><h1 className="font-display text-xl font-semibold text-[#283d32]">Seller verification</h1><p className="mt-2 text-sm text-[#7c8881]">Sign in to verify your seller account.</p><Button onClick={onRequestSignIn} className="mt-4">Sign in</Button></section>
 
   if (!emailConfirmed) return <section className="mx-auto max-w-3xl rounded-[18px] border border-[#ead9b0] bg-[#fff9e9] p-6"><h1 className="font-display text-xl font-semibold text-[#4f442e]">Confirm your email first</h1><p className="mt-2 text-sm leading-6 text-[#7a6a45]">Confirm your QuickResell email before starting seller identity verification.</p></section>
@@ -361,6 +391,21 @@ export function SellerVerificationPage({ session, emailConfirmed, onRequestSignI
                 }} className="mt-1 size-4 accent-[#315f49]" /><span>I consent to QuickResell processing my identity details for seller verification and matching them against the payout account holder name.{fieldErrors.consent && <span role="alert" className="mt-1 block text-xs font-medium text-[#a34237]">{fieldErrors.consent}</span>}</span></label>
                 <Button type="submit" disabled={identityBusy || loading} icon={identityBusy ? <LoaderCircle size={16} className="animate-spin" /> : <Camera size={16} />}>{identityBusy ? 'Verifying…' : paystackProvider ? 'Verify identity and payout account' : 'Start identity verification'}</Button>
               </form>}
+        {identityStatus === 'VERIFIED' && !fullyVerified && !paystackProvider && <form onSubmit={(event) => void submitPayoutAccount(event)} className="mt-4 space-y-4 rounded-xl border border-[#e2e9e3] bg-[#f8faf8] p-4">
+          <div><h3 className="text-sm font-semibold text-[#2c4236]">Add your payout bank account</h3><p className="mt-1 text-xs leading-5 text-[#718078]">Your identity is verified. Add a bank account in your own name to create your Paystack transfer recipient and receive seller payouts.</p></div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="block text-xs font-semibold text-[#52645a]"><span className="mb-1.5 block">Payout bank</span><select value={bankCode} onChange={(event) => {
+              setBankCode(event.target.value)
+              setFieldErrors((current) => ({ ...current, bankCode: undefined }))
+            }} aria-invalid={Boolean(fieldErrors.bankCode)} disabled={banksLoading || banks.length === 0 || identityBusy} className="app-select h-11 w-full rounded-xl border border-[#dfe7e1] bg-white px-3 text-sm text-[#273a30] outline-none focus:border-[#86a995] disabled:bg-[#f4f6f4]"><option value="">{banks.length ? 'Choose your bank' : banksLoading ? 'Loading banks…' : 'Banks unavailable'}</option>{banks.map((bank) => <option key={bank.code} value={bank.code}>{bank.name}</option>)}</select>{fieldErrors.bankCode && <span role="alert" className="mt-1 block text-xs font-medium text-[#a34237]">{fieldErrors.bankCode}</span>}{bankLoadError && <span role="alert" className="mt-1 block text-xs font-medium text-[#a34237]">{bankLoadError} <button type="button" onClick={() => void loadBanks()} className="font-semibold underline">Retry</button></span>}</label>
+            <label className="block text-xs font-semibold text-[#52645a]"><span className="mb-1.5 block">Payout account number</span><input type="text" inputMode="numeric" autoComplete="off" minLength={10} maxLength={10} pattern="[0-9]{10}" value={accountNumber} onChange={(event) => {
+              const nextValue = event.target.value.replace(/\D/g, '').slice(0, 10)
+              setAccountNumber(nextValue)
+              setFieldErrors((current) => ({ ...current, accountNumber: undefined }))
+            }} aria-invalid={Boolean(fieldErrors.accountNumber)} disabled={identityBusy} placeholder="10 digits" className="h-11 w-full rounded-xl border border-[#dfe7e1] bg-white px-3 text-sm text-[#273a30] outline-none focus:border-[#86a995]" />{fieldErrors.accountNumber && <span role="alert" className="mt-1 block text-xs font-medium text-[#a34237]">{fieldErrors.accountNumber}</span>}</label>
+          </div>
+          <Button type="submit" disabled={identityBusy || banksLoading || banks.length === 0} icon={identityBusy ? <LoaderCircle size={16} className="animate-spin" /> : <BadgeCheck size={16} />}>{identityBusy ? 'Verifying payout account…' : 'Verify payout account'}</Button>
+        </form>}
         {fullyVerified && verification?.bankName && <p className="mt-4 flex items-center gap-2 text-sm text-[#477358]"><BadgeCheck size={16} />{verification.bankName} · account ending {verification.bankAccountLast4}</p>}
       </section>
 
