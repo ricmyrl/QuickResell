@@ -6,7 +6,7 @@ import { cashOutSellerOrderItem, getWallet, type WalletData } from '../../servic
 import type { SellerWalletPayout } from '../../types'
 import { verifyPasskeyForAction } from '../../services/passkeyVerification'
 
-const quickAmounts = [10, 25, 50, 100]
+const quickAmounts = [5000, 10000, 25000, 50000]
 const usdFormatter = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' })
 const dateFormatter = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' })
 const transactionTitles = {
@@ -48,11 +48,11 @@ export function WalletPage({ session, emailConfirmed, onRequestSignIn, onAddFund
   session: Session | null
   emailConfirmed: boolean
   onRequestSignIn: () => void
-  onAddFunds: (amountCents: number) => Promise<void>
+  onAddFunds: (amountKobo: number) => Promise<void>
   onRequestSellerVerification: () => void
 }) {
   const [wallet, setWallet] = useState<WalletData>(emptyWallet)
-  const [amount, setAmount] = useState('25')
+  const [amount, setAmount] = useState('5000')
   const [loading, setLoading] = useState(Boolean(session && emailConfirmed))
   const [busy, setBusy] = useState(false)
   const [cashoutBusyId, setCashoutBusyId] = useState<string | null>(null)
@@ -118,12 +118,12 @@ export function WalletPage({ session, emailConfirmed, onRequestSignIn, onAddFund
 
     const normalizedAmount = amount.trim()
     if (!/^\d+(\.\d{1,2})?$/.test(normalizedAmount)) {
-      setError('Enter an amount in dollars with up to two decimal places.')
+      setError('Enter an amount in naira with up to two decimal places.')
       return
     }
-    const amountCents = Math.round(Number(normalizedAmount) * 100)
-    if (!Number.isSafeInteger(amountCents) || amountCents < 100) {
-      setError('The minimum wallet deposit is $1.00.')
+    const amountKobo = Math.round(Number(normalizedAmount) * 100)
+    if (!Number.isSafeInteger(amountKobo) || amountKobo < 100) {
+      setError('The minimum wallet deposit is ₦1.00.')
       return
     }
 
@@ -131,7 +131,7 @@ export function WalletPage({ session, emailConfirmed, onRequestSignIn, onAddFund
     setError('')
     setNotice('')
     try {
-      await onAddFunds(amountCents)
+      await onAddFunds(amountKobo)
       try {
         setWallet(await getWallet(session))
         setNotice('Your wallet has been topped up.')
@@ -158,7 +158,7 @@ export function WalletPage({ session, emailConfirmed, onRequestSignIn, onAddFund
     <div className="mb-6">
       <p className="text-[11px] font-bold uppercase tracking-[.16em] text-[#658371]">Your account</p>
       <h1 className="font-display mt-1 text-3xl font-semibold tracking-[-.03em] text-[#20372d]">Wallet</h1>
-      <p className="mt-2 text-sm text-[#7b8880]">Add funds with Paystack, spend your USD balance at checkout, or use eligible seller proceeds.</p>
+      <p className="mt-2 text-sm text-[#7b8880]">Fund your wallet through Paystack in naira. Deposits are converted to USD for your wallet balance and checkout.</p>
     </div>
 
     {!emailConfirmed && <div role="status" className="mb-5 rounded-xl border border-[#ead9b0] bg-[#fff9e9] px-4 py-3 text-sm text-[#765b22]">Confirm your email before adding money to your wallet.</div>}
@@ -183,15 +183,15 @@ export function WalletPage({ session, emailConfirmed, onRequestSignIn, onAddFund
         </div>
 
         <div className="mt-6 grid grid-cols-4 gap-2">
-          {quickAmounts.map((quickAmount) => <button key={quickAmount} type="button" onClick={() => setAmount(String(quickAmount))} aria-pressed={amount === String(quickAmount)} className={`min-h-10 rounded-xl border text-sm font-semibold transition ${amount === String(quickAmount) ? 'border-[#76917e] bg-[#edf4ed] text-[#2d5d4c]' : 'border-[#e5ebe5] text-[#718078] hover:bg-[#f7f9f7]'}`}>${quickAmount}</button>)}
+          {quickAmounts.map((quickAmount) => <button key={quickAmount} type="button" onClick={() => setAmount(String(quickAmount))} aria-pressed={amount === String(quickAmount)} className={`min-h-10 rounded-xl border text-sm font-semibold transition ${amount === String(quickAmount) ? 'border-[#76917e] bg-[#edf4ed] text-[#2d5d4c]' : 'border-[#e5ebe5] text-[#718078] hover:bg-[#f7f9f7]'}`}>₦{quickAmount.toLocaleString('en-NG')}</button>)}
         </div>
 
-        <label htmlFor="wallet-amount" className="mt-5 block text-xs font-semibold text-[#53665a]">Custom amount (USD)</label>
+        <label htmlFor="wallet-amount" className="mt-5 block text-xs font-semibold text-[#53665a]">Custom amount (NGN)</label>
         <div className="mt-2 flex items-center rounded-xl border border-[#dfe7df] bg-[#fbfcfb] px-3 focus-within:border-[#90aa98]">
-          <span className="text-sm font-semibold text-[#849189]">$</span>
+          <span className="text-sm font-semibold text-[#849189]">₦</span>
           <input id="wallet-amount" type="number" min="1" step="0.01" inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} disabled={busy || !emailConfirmed} className="h-12 w-full bg-transparent px-2 text-base font-semibold text-[#263b33] outline-none disabled:opacity-60" />
         </div>
-        <p className="mt-2 text-[11px] leading-5 text-[#8a9690]">The final payment is processed in Nigerian naira using the current exchange rate.</p>
+        <p className="mt-2 text-[11px] leading-5 text-[#8a9690]">The final payment is processed securely through Paystack in Nigerian naira.</p>
 
         {error && <p role="alert" className="mt-4 rounded-xl border border-[#f0d7d2] bg-[#fff5f2] px-3 py-2.5 text-xs leading-5 text-[#9c493d]">{error}</p>}
         {notice && <p role="status" className="mt-4 rounded-xl border border-[#d9eadc] bg-[#f1f8f1] px-3 py-2.5 text-xs text-[#477358]">{notice}</p>}

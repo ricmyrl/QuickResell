@@ -571,14 +571,14 @@ export default function MarketplaceApp() {
     }
   }
 
-  const handleAddWalletFunds = async (amountCents: number) => {
+  const handleAddWalletFunds = async (amountKobo: number) => {
     if (!session) {
       setAuthMode('signin', viewPaths.wallet)
       throw new Error('Sign in before adding money to your wallet.')
     }
     if (!emailConfirmed) throw new Error('Confirm your email before adding money to your wallet.')
 
-    const payment = await initializeWalletTopUp(amountCents, session)
+    const payment = await initializeWalletTopUp(amountKobo, session)
     openPaystackCheckout(payment.authorization_url)
     return await new Promise<void>(() => undefined)
   }
