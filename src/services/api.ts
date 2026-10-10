@@ -108,7 +108,11 @@ async function request<T>(path: string, init: RequestInit = {}, session?: Sessio
       const activeSession = await resolveSession(session)
       const headers = new Headers(init.headers)
       headers.set('Content-Type', 'application/json')
-      if (activeSession?.access_token) headers.set('Authorization', `Bearer ${activeSession.access_token}`)
+      if (activeSession?.access_token) {
+        headers.set('Authorization', `Bearer ${activeSession.access_token}`)
+      } else {
+        headers.delete('Authorization')
+      }
       const response = await fetch(`${baseUrl}${path}`, { ...init, headers })
       const payload = await response.json().catch(() => ({})) as { error?: string }
       if (!response.ok) {

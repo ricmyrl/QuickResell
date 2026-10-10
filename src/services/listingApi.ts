@@ -86,7 +86,11 @@ async function apiRequest<T>(path: string, session?: Session | null, init: Reque
   for (const baseUrl of apiBaseCandidates) {
     try {
       const headers = new Headers(init.headers)
-      if (session?.access_token) headers.set('Authorization', `Bearer ${session.access_token}`)
+      if (session?.access_token) {
+        headers.set('Authorization', `Bearer ${session.access_token}`)
+      } else {
+        headers.delete('Authorization')
+      }
       if (init.body) headers.set('Content-Type', 'application/json')
       const response = await fetch(`${baseUrl}${path}`, { ...init, headers })
       const payload = await response.json().catch(() => ({})) as { error?: string }

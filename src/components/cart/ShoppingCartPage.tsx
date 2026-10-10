@@ -1,10 +1,12 @@
-import { useState } from 'react'
-import { ArrowLeft, ArrowRight, CheckCircle2, ChevronDown, Clock3, CreditCard, LoaderCircle, LockKeyhole, MapPin, PackageCheck, ShieldCheck, ShoppingCart, Trash2 } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { ArrowLeft, ArrowRight, CheckCircle2, ChevronDown, Clock3, CreditCard, LoaderCircle, LockKeyhole, MapPin, PackageCheck, ShieldCheck, ShoppingCart, Trash2, WalletCards } from 'lucide-react'
 import { motion } from 'framer-motion'
+import type { Session } from '@supabase/supabase-js'
 import type { AuctionStatus, PurchaseOrder, ShoppingCartItem } from '../../types'
 import { useCountdown } from '../../hooks/useCountdown'
 import { Button } from '../common/Button'
 import { useCurrency } from '../../lib/CurrencyContext'
+import { getWallet } from '../../services/cartApi'
 
 function AuctionCartCountdown({ endsAt, status }: { endsAt: string; status: AuctionStatus }) {
   const countdown = useCountdown(endsAt)
@@ -25,14 +27,16 @@ function AuctionCartCountdown({ endsAt, status }: { endsAt: string; status: Auct
   </span>
 }
 
-export function ShoppingCartPage({ items, loading, error, onShop, onSetQuantity, onRemove, onCheckout, onRefresh }: {
+export function ShoppingCartPage({ items, loading, error, session, onShop, onOpenWallet, onSetQuantity, onRemove, onCheckout, onRefresh }: {
   items: ShoppingCartItem[]
   loading: boolean
   error: string
+  session: Session | null
   onShop: () => void
+  onOpenWallet: () => void
   onSetQuantity: (postId: string, quantity: number) => Promise<void>
   onRemove: (postId: string) => Promise<void>
-  onCheckout: () => Promise<PurchaseOrder | null>
+  onCheckout: (method: 'PAYSTACK' | 'WALLET') => Promise<PurchaseOrder | null>
   onRefresh: () => Promise<void>
 }) {
   const { formatUsd } = useCurrency()
@@ -42,10 +46,30 @@ export function ShoppingCartPage({ items, loading, error, onShop, onSetQuantity,
   const [notice, setNotice] = useState('')
   const [order, setOrder] = useState<PurchaseOrder | null>(null)
   const [checkoutOpen, setCheckoutOpen] = useState(false)
+  const [paymentMethod, setPaymentMethod] = useState<'PAYSTACK' | 'WALLET'>('PAYSTACK')
+  const [orderPaymentMethod, setOrderPaymentMethod] = useState<'PAYSTACK' | 'WALLET'>('PAYSTACK')
+  const [walletBalanceCents, setWalletBalanceCents] = useState<number | null>(null)
+  const [walletLoading, setWalletLoading] = useState(false)
+  const [walletLoadError, setWalletLoadError] = useState('')
   const checkoutItems = items.filter((item) => item.available)
   const lockedAuctionCount = items.filter((item) => item.auction && !item.available).length
   const unavailableCount = items.filter((item) => !item.available && !item.auction).length
   const subtotalCents = checkoutItems.reduce((sum, item) => sum + item.unitPriceCents * item.quantity, 0)
+
+  useEffect(() => {
+    if (!checkoutOpen || !session) return
+    let cancelled = false
+    setWalletLoading(true)
+    setWalletLoadError('')
+    void getWallet(session).then((wallet) => {
+      if (!cancelled) setWalletBalanceCents(wallet.balanceCents)
+    }).catch((caught: unknown) => {
+      if (!cancelled) setWalletLoadError(caught instanceof Error ? caught.message : 'Your wallet balance could not be loaded.')
+    }).finally(() => {
+      if (!cancelled) setWalletLoading(false)
+    })
+    return () => { cancelled = true }
+  }, [checkoutOpen, session])
 
   const changeQuantity = async (postId: string, quantity: number) => {
     setWorkingId(postId); setNotice('')
@@ -66,8 +90,11 @@ export function ShoppingCartPage({ items, loading, error, onShop, onSetQuantity,
     }
     setBusy(true); setNotice('')
     try {
-      const completedOrder = await onCheckout()
-      if (completedOrder) setOrder(completedOrder)
+      const completedOrder = await onCheckout(paymentMethod)
+      if (completedOrder) {
+        setOrderPaymentMethod(paymentMethod)
+        setOrder(completedOrder)
+      }
     }
     catch (caught) { setNotice(caught instanceof Error ? caught.message : 'Your order could not be placed.') }
     finally { setBusy(false) }
@@ -82,12 +109,12 @@ export function ShoppingCartPage({ items, loading, error, onShop, onSetQuantity,
         <div className="flex size-12 items-center justify-center rounded-2xl bg-[#d4f06b] text-[#253b32]"><CreditCard size={22} /></div>
         <p className="mt-6 text-[11px] font-bold uppercase tracking-[.16em] text-[#658371]">Secure checkout</p>
         <h1 className="font-display mt-2 text-3xl font-semibold tracking-[-.03em] text-[#20372d]">Review your payment</h1>
-        <p className="mt-2 max-w-md text-sm leading-6 text-[#7b8880]">You’ll complete payment in Paystack’s secure checkout. Your card details are entered directly with Paystack and aren’t stored by QuickResell.</p>
+        <p className="mt-2 max-w-md text-sm leading-6 text-[#7b8880]">Choose your QuickResell wallet balance or pay securely through Paystack.</p>
 
         <div className="mt-7 rounded-2xl border border-[#e8eee9] bg-[#f8faf8] p-4">
           <div className="flex items-center gap-3">
             <span className="grid size-10 place-items-center rounded-xl bg-white text-[#315f49] shadow-sm"><LockKeyhole size={17} /></span>
-            <div><p className="text-sm font-semibold text-[#30483a]">Protected by Paystack</p><p className="mt-0.5 text-xs text-[#829087]">Encrypted payment processing</p></div>
+            <div><p className="text-sm font-semibold text-[#30483a]">{paymentMethod === 'WALLET' ? 'QuickResell wallet' : 'Protected by Paystack'}</p><p className="mt-0.5 text-xs text-[#829087]">{paymentMethod === 'WALLET' ? 'Paid securely from your available balance' : 'Card details are entered with Paystack, never stored here'}</p></div>
             <span className="ml-auto rounded-full bg-[#e8f4eb] px-2.5 py-1 text-[10px] font-bold uppercase tracking-[.08em] text-[#477358]">Secure</span>
           </div>
         </div>
@@ -122,12 +149,23 @@ export function ShoppingCartPage({ items, loading, error, onShop, onSetQuantity,
               <span className="font-display text-base font-semibold text-[#34483b]">Total</span>
               <span className="font-display text-2xl font-bold tracking-[-.03em] text-[#20372d]">{currency.format(subtotalCents / 100)}</span>
             </div>
-            <p className="mt-2 text-[11px] leading-5 text-[#89958e]">Paystack will display the final charge in NGN using the current exchange rate before you approve it.</p>
+            <p className="mt-2 text-[11px] leading-5 text-[#89958e]">{paymentMethod === 'WALLET' ? 'The amount will be deducted from your USD wallet balance.' : 'Paystack will display the final charge in NGN using the current exchange rate before you approve it.'}</p>
           </div>
+          <fieldset className="mt-5 space-y-2">
+            <legend className="mb-2 text-xs font-semibold text-[#53665a]">Choose payment method</legend>
+            <button type="button" aria-pressed={paymentMethod === 'PAYSTACK'} onClick={() => setPaymentMethod('PAYSTACK')} className={`flex w-full items-center gap-3 rounded-xl border p-3 text-left transition ${paymentMethod === 'PAYSTACK' ? 'border-[#76917e] bg-white ring-1 ring-[#76917e]' : 'border-[#e2e9e3] bg-transparent hover:bg-white'}`}>
+              <CreditCard size={17} className="text-[#456b54]" /><span className="min-w-0 flex-1"><span className="block text-sm font-semibold text-[#34483b]">Paystack</span><span className="mt-0.5 block text-xs text-[#829087]">Pay now by card or bank</span></span><span className={`size-4 rounded-full border ${paymentMethod === 'PAYSTACK' ? 'border-[5px] border-[#456b54]' : 'border-[#b8c2ba]'}`} />
+            </button>
+            <button type="button" aria-pressed={paymentMethod === 'WALLET'} disabled={walletLoading || walletBalanceCents === null} onClick={() => setPaymentMethod('WALLET')} className={`flex w-full items-center gap-3 rounded-xl border p-3 text-left transition disabled:cursor-wait disabled:opacity-60 ${paymentMethod === 'WALLET' ? 'border-[#76917e] bg-white ring-1 ring-[#76917e]' : 'border-[#e2e9e3] bg-transparent hover:bg-white'}`}>
+              <WalletCards size={17} className="text-[#456b54]" /><span className="min-w-0 flex-1"><span className="block text-sm font-semibold text-[#34483b]">QuickResell wallet</span><span className="mt-0.5 block text-xs text-[#829087]">{walletLoading ? 'Loading balance…' : walletBalanceCents === null ? 'Wallet balance unavailable' : `Available: ${currency.format(walletBalanceCents / 100)}`}</span></span><span className={`size-4 rounded-full border ${paymentMethod === 'WALLET' ? 'border-[5px] border-[#456b54]' : 'border-[#b8c2ba]'}`} />
+            </button>
+          </fieldset>
+          {walletLoadError && <div role="alert" className="mt-3 rounded-lg border border-[#f0d7d2] bg-[#fff5f2] p-3 text-xs text-[#9c493d]">{walletLoadError}<Button variant="secondary" onClick={onOpenWallet} className="ml-2 min-h-7 px-2 text-xs">Open wallet</Button></div>}
+          {walletBalanceCents !== null && walletBalanceCents < subtotalCents && <p className="mt-2 text-xs text-[#8a6b38]">Your wallet needs {currency.format((subtotalCents - walletBalanceCents) / 100)} more to cover this order. Add funds in Wallet or choose Paystack.</p>}
         </div>
         <div className="mt-8">
-          <Button disabled={busy || unavailableCount > 0 || items.length === 0} onClick={() => { setCheckoutOpen(false); void submitOrder() }} icon={<ArrowRight size={16} />} className="w-full justify-center py-3.5">
-            {busy ? 'Opening secure payment…' : 'Continue to Paystack'}
+          <Button disabled={busy || unavailableCount > 0 || items.length === 0 || walletLoading || (paymentMethod === 'WALLET' && (walletBalanceCents === null || walletBalanceCents < subtotalCents))} onClick={() => void submitOrder()} icon={busy ? <LoaderCircle size={16} className="animate-spin" /> : <ArrowRight size={16} />} className="w-full justify-center py-3.5">
+            {busy ? paymentMethod === 'WALLET' ? 'Paying from wallet…' : 'Opening secure payment…' : paymentMethod === 'WALLET' ? 'Pay with wallet' : 'Continue to Paystack'}
           </Button>
           {unavailableCount > 0 && <p className="mt-3 text-xs font-medium text-[#b34439]">Remove unavailable items to continue.</p>}
           {lockedAuctionCount > 0 && <p className="mt-3 text-xs leading-5 text-[#748279]">{lockedAuctionCount} auction {lockedAuctionCount === 1 ? 'item is' : 'items are'} locked until the auction ends and the seller confirms your win.</p>}
@@ -137,7 +175,7 @@ export function ShoppingCartPage({ items, loading, error, onShop, onSetQuantity,
     </div>
   </section>
 
-  if (order) return <section className="mx-auto max-w-[760px] py-8"><button type="button" onClick={() => { setOrder(null); onShop() }} className="mb-6 inline-flex items-center gap-2 text-sm font-semibold text-[#6f8078] hover:text-[#263b33]"><ArrowLeft size={16} />Back to shop</button><motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="rounded-[20px] border border-[#dfebe0] bg-white p-6 sm:p-9"><span className="grid size-12 place-items-center rounded-2xl bg-[#eaf5e9] text-[#4c8056]"><CheckCircle2 size={24} /></span><p className="mt-5 text-xs font-bold uppercase tracking-[.13em] text-[#63836c]">Order placed</p><h1 className="font-display mt-2 text-3xl font-semibold text-[#233b2f]">Your campus order is in.</h1><p className="mt-2 text-sm leading-6 text-[#748279]">Your Paystack payment was confirmed. Coordinate pickup or shipping with each seller from My Orders.</p><div className="mt-6 rounded-xl bg-[#f6f8f6] p-4"><div className="flex flex-wrap items-center justify-between gap-2"><span className="text-xs font-semibold text-[#76847b]">Order reference</span><span className="font-mono text-xs font-bold text-[#425c4a]">{order.id}</span></div><div className="mt-3 flex items-center justify-between border-t border-[#e8ede9] pt-3"><span className="text-sm font-semibold text-[#53645a]">Order subtotal</span><span className="font-display text-xl font-bold text-[#263b33]">{currency.format(order.subtotalCents / 100)}</span></div></div><div className="mt-5 space-y-2">{order.items.map((item) => <div key={item.id} className="flex items-center justify-between gap-3 text-xs"><span className="min-w-0 flex-1 truncate text-[#6d7c73]">{item.quantity} × {item.title}</span><span className="font-semibold text-[#405549]">{currency.format(item.unitPriceCents * item.quantity / 100)}</span></div>)}</div><div className="mt-6 flex items-start gap-2 rounded-xl border border-[#e6ece7] p-3 text-xs leading-5 text-[#78867e]"><MapPin size={15} className="mt-0.5 shrink-0 text-[#71917a]" />Keep exchanges on campus and agree on a public meetup spot with each seller.</div><Button onClick={() => { setOrder(null); onShop() }} className="mt-6">Continue shopping</Button></motion.div></section>
+  if (order) return <section className="mx-auto max-w-[760px] py-8"><button type="button" onClick={() => { setOrder(null); onShop() }} className="mb-6 inline-flex items-center gap-2 text-sm font-semibold text-[#6f8078] hover:text-[#263b33]"><ArrowLeft size={16} />Back to shop</button><motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="rounded-[20px] border border-[#dfebe0] bg-white p-6 sm:p-9"><span className="grid size-12 place-items-center rounded-2xl bg-[#eaf5e9] text-[#4c8056]"><CheckCircle2 size={24} /></span><p className="mt-5 text-xs font-bold uppercase tracking-[.13em] text-[#63836c]">Order placed</p><h1 className="font-display mt-2 text-3xl font-semibold text-[#233b2f]">Your campus order is in.</h1><p className="mt-2 text-sm leading-6 text-[#748279]">Payment was made using {orderPaymentMethod === 'WALLET' ? 'your QuickResell wallet' : 'Paystack'}. Coordinate pickup or shipping with each seller from My Orders.</p><div className="mt-6 rounded-xl bg-[#f6f8f6] p-4"><div className="flex flex-wrap items-center justify-between gap-2"><span className="text-xs font-semibold text-[#76847b]">Order reference</span><span className="font-mono text-xs font-bold text-[#425c4a]">{order.id}</span></div><div className="mt-3 flex items-center justify-between border-t border-[#e8ede9] pt-3"><span className="text-sm font-semibold text-[#53645a]">Order subtotal</span><span className="font-display text-xl font-bold text-[#263b33]">{currency.format(order.subtotalCents / 100)}</span></div></div><div className="mt-5 space-y-2">{order.items.map((item) => <div key={item.id} className="flex items-center justify-between gap-3 text-xs"><span className="min-w-0 flex-1 truncate text-[#6d7c73]">{item.quantity} × {item.title}</span><span className="font-semibold text-[#405549]">{currency.format(item.unitPriceCents * item.quantity / 100)}</span></div>)}</div><div className="mt-6 flex items-start gap-2 rounded-xl border border-[#e6ece7] p-3 text-xs leading-5 text-[#78867e]"><MapPin size={15} className="mt-0.5 shrink-0 text-[#71917a]" />Keep exchanges on campus and agree on a public meetup spot with each seller.</div><Button onClick={() => { setOrder(null); onShop() }} className="mt-6">Continue shopping</Button></motion.div></section>
 
   return <section className="min-w-0"><div className="mb-5 flex items-end justify-between gap-3"><div><p className="mb-2 text-xs font-bold uppercase tracking-[.12em] text-[#698572]">Your order</p><h1 className="font-display text-[30px] font-semibold tracking-[-.03em] text-[#1c2b26]">Shopping cart <span className="text-lg font-medium text-[#859189]">({items.length} {items.length === 1 ? 'item' : 'items'})</span></h1></div><button type="button" onClick={onShop} className="hidden items-center gap-1.5 text-xs font-semibold text-[#57765f] hover:text-[#334d3a] sm:inline-flex"><ArrowLeft size={14} />Continue shopping</button></div>
     {notice && <div role="alert" className="mb-4 rounded-xl border border-[#f0d7d2] bg-[#fff5f2] px-4 py-3 text-sm text-[#a34237]">{notice}{error && <button type="button" onClick={() => void onRefresh()} className="ml-2 font-semibold underline">Refresh cart</button>}</div>}

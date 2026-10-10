@@ -146,7 +146,7 @@ export type SellerWalletPayout = {
   orderItemId: string
   title: string
   amountUsdCents: number
-  status: NonNullable<SellerOrderItem['sellerPayout']>['status']
+  status: NonNullable<SellerOrderItem['sellerPayout']>['status'] | 'NOT_TRACKED'
   fulfillmentStatus: OrderItemFulfillmentStatus
   createdAt: string
 }

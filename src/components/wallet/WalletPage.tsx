@@ -9,6 +9,12 @@ import { verifyPasskeyForAction } from '../../services/passkeyVerification'
 const quickAmounts = [10, 25, 50, 100]
 const usdFormatter = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' })
 const dateFormatter = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+const transactionTitles = {
+  TOP_UP: 'Wallet deposit',
+  PURCHASE: 'Wallet checkout',
+  SELLER_EARNING: 'Sale proceeds',
+  CASHOUT: 'Seller cashout',
+} as const
 const emptyWallet: WalletData = {
   balanceCents: 0,
   transactions: [],
@@ -27,6 +33,7 @@ const canCashOut = (payout: SellerWalletPayout) =>
   && ['READY_FOR_PICKUP', 'SHIPPED', 'COMPLETED'].includes(payout.fulfillmentStatus)
 
 function payoutStatusLabel(payout: SellerWalletPayout, payoutAccountVerified: boolean) {
+  if (payout.status === 'NOT_TRACKED') return 'Historical sale · payout needs reconciliation'
   if (payout.status === 'SUCCESS') return 'Paid out'
   if (payout.status === 'PROCESSING') return 'Transfer processing'
   if (payout.status === 'REVIEW_REQUIRED') return 'Transfer needs review'
@@ -151,7 +158,7 @@ export function WalletPage({ session, emailConfirmed, onRequestSignIn, onAddFund
     <div className="mb-6">
       <p className="text-[11px] font-bold uppercase tracking-[.16em] text-[#658371]">Your account</p>
       <h1 className="font-display mt-1 text-3xl font-semibold tracking-[-.03em] text-[#20372d]">Wallet</h1>
-      <p className="mt-2 text-sm text-[#7b8880]">Add funds and keep track of your available balance. Your wallet is stored in US dollars.</p>
+      <p className="mt-2 text-sm text-[#7b8880]">Add funds with Paystack, spend your USD balance at checkout, or use eligible seller proceeds.</p>
     </div>
 
     {!emailConfirmed && <div role="status" className="mb-5 rounded-xl border border-[#ead9b0] bg-[#fff9e9] px-4 py-3 text-sm text-[#765b22]">Confirm your email before adding money to your wallet.</div>}
@@ -234,16 +241,16 @@ export function WalletPage({ session, emailConfirmed, onRequestSignIn, onAddFund
 
     <section className="mt-7 overflow-hidden rounded-[22px] border border-[#e2e9e3] bg-white">
       <div className="flex items-center justify-between border-b border-[#edf1ed] px-5 py-4 sm:px-6">
-        <div><h2 className="text-sm font-semibold text-[#30483a]">Recent deposits</h2><p className="mt-1 text-xs text-[#87938b]">Your latest completed wallet top-ups</p></div>
+        <div><h2 className="text-sm font-semibold text-[#30483a]">Recent wallet activity</h2><p className="mt-1 text-xs text-[#87938b]">Deposits, purchases, seller proceeds, and cashouts</p></div>
         <button type="button" onClick={() => void refreshWallet()} disabled={loading || !emailConfirmed} aria-label="Refresh wallet, seller earnings, and deposits" className="grid size-9 place-items-center rounded-lg text-[#728279] transition hover:bg-[#f2f6f2] disabled:opacity-50"><RefreshCw size={15} className={loading ? 'animate-spin' : ''} /></button>
       </div>
       {wallet.transactions.length === 0
-        ? <div className="px-5 py-10 text-center text-sm text-[#87938b]"><Clock3 size={19} className="mx-auto mb-2 text-[#a3aea6]" />Completed deposits will appear here.</div>
+        ? <div className="px-5 py-10 text-center text-sm text-[#87938b]"><Clock3 size={19} className="mx-auto mb-2 text-[#a3aea6]" />Wallet activity will appear here.</div>
         : <ul className="divide-y divide-[#edf1ed]">
           {wallet.transactions.map((transaction) => <li key={transaction.id} className="flex items-center gap-3 px-5 py-4 sm:px-6">
-            <span className="grid size-9 place-items-center rounded-xl bg-[#eef6ee] text-[#4f805a]"><ArrowDownToLine size={16} /></span>
-            <span className="min-w-0 flex-1"><span className="block text-sm font-semibold text-[#35483b]">Wallet deposit</span><span className="mt-1 block text-xs text-[#89958e]">{dateFormatter.format(new Date(transaction.createdAt))}</span></span>
-            <span className="text-sm font-semibold text-[#477358]">+{usdFormatter.format(transaction.amountCents / 100)}</span>
+            <span className={`grid size-9 place-items-center rounded-xl ${transaction.direction === 'CREDIT' ? 'bg-[#eef6ee] text-[#4f805a]' : 'bg-[#f4f2ee] text-[#83775f]'}`}>{transaction.direction === 'CREDIT' ? <ArrowDownToLine size={16} /> : <ArrowUpRight size={16} />}</span>
+            <span className="min-w-0 flex-1"><span className="block text-sm font-semibold text-[#35483b]">{transaction.orderItem?.title ? `${transactionTitles[transaction.type]} · ${transaction.orderItem.title}` : transactionTitles[transaction.type]}</span><span className="mt-1 block text-xs text-[#89958e]">{dateFormatter.format(new Date(transaction.createdAt))}</span></span>
+            <span className={`text-sm font-semibold ${transaction.direction === 'CREDIT' ? 'text-[#477358]' : 'text-[#83775f]'}`}>{transaction.direction === 'CREDIT' ? '+' : '−'}{usdFormatter.format(transaction.amountCents / 100)}</span>
           </li>)}
         </ul>}
     </section>

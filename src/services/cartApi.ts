@@ -77,7 +77,11 @@ async function request<T>(path: string, init: RequestInit = {}, session?: Sessio
       const activeSession = await resolveSession(session)
       const headers = new Headers(init.headers)
       headers.set('Content-Type', 'application/json')
-      if (activeSession?.access_token) headers.set('Authorization', `Bearer ${activeSession.access_token}`)
+      if (activeSession?.access_token) {
+        headers.set('Authorization', `Bearer ${activeSession.access_token}`)
+      } else {
+        headers.delete('Authorization')
+      }
       const response = await fetch(`${baseUrl}${path}`, { ...init, headers })
       const body = await response.text()
       let payload: ApiErrorPayload = {}
@@ -155,7 +159,15 @@ export async function verifyPayment(reference: string, session?: Session | null)
 
 export type WalletData = {
   balanceCents: number
-  transactions: Array<{ id: string; amountCents: number; paymentReference: string; createdAt: string }>
+  transactions: Array<{
+    id: string
+    amountCents: number
+    paymentReference: string
+    createdAt: string
+    type: 'TOP_UP' | 'PURCHASE' | 'SELLER_EARNING' | 'CASHOUT'
+    direction: 'CREDIT' | 'DEBIT'
+    orderItem: { title: string } | null
+  }>
   sellerEarnings: {
     earnedCents: number
     pendingFulfillmentCents: number
@@ -183,10 +195,14 @@ export async function verifyWalletTopUp(reference: string, session?: Session | n
   }, session)
 }
 
-export async function placeCartOrder(paymentReference?: string, session?: Session | null): Promise<PurchaseOrder> {
+export async function placeCartOrder(
+  paymentReference: string | undefined,
+  session: Session | null | undefined,
+  paymentMethod: 'PAYSTACK' | 'WALLET' = 'PAYSTACK',
+): Promise<PurchaseOrder> {
   const result = await request<{ order: PurchaseOrder }>('/cart/checkout', {
     method: 'POST',
-    body: JSON.stringify(paymentReference ? { paymentReference } : {}),
+    body: JSON.stringify(paymentMethod === 'WALLET' ? { paymentMethod } : { paymentReference }),
   }, session)
   return result.order
 }
