@@ -19,6 +19,8 @@ export function PaystackReturnPage({ reference, transactionType, session, authLo
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(true)
   const attempted = useRef(false)
+  const callbacks = useRef({ onRequestSignIn, onCompleteCheckout, onComplete })
+  callbacks.current = { onRequestSignIn, onCompleteCheckout, onComplete }
 
   useEffect(() => {
     if (authLoading || attempted.current) return
@@ -28,7 +30,7 @@ export function PaystackReturnPage({ reference, transactionType, session, authLo
       return
     }
     if (!session) {
-      onRequestSignIn()
+      callbacks.current.onRequestSignIn()
       return
     }
     if (!emailConfirmed) {
@@ -44,12 +46,12 @@ export function PaystackReturnPage({ reference, transactionType, session, authLo
         if (transactionType === 'CART_CHECKOUT') {
           const result = await verifyPayment(reference, session)
           if (!result.verified) throw new Error('Paystack could not verify this checkout.')
-          await onCompleteCheckout(reference)
+          await callbacks.current.onCompleteCheckout(reference)
         } else {
           const result = await verifyWalletTopUp(reference, session)
           if (!result.verified) throw new Error('Paystack could not verify this wallet deposit.')
         }
-        if (!cancelled) onComplete(transactionType)
+        if (!cancelled) callbacks.current.onComplete(transactionType)
       } catch (caught) {
         if (!cancelled) {
           setError(caught instanceof Error ? caught.message : 'The payment could not be confirmed. Contact support with your Paystack reference.')
@@ -58,7 +60,7 @@ export function PaystackReturnPage({ reference, transactionType, session, authLo
       }
     })()
     return () => { cancelled = true }
-  }, [authLoading, emailConfirmed, onComplete, onCompleteCheckout, onRequestSignIn, reference, session, transactionType])
+  }, [authLoading, emailConfirmed, reference, session, transactionType])
 
   return <div className="fixed inset-0 z-[100] grid place-items-center bg-[#14221c]/65 p-4 backdrop-blur-sm">
     <section role="status" aria-live="polite" className="w-full max-w-md rounded-[20px] border border-[#e4eae5] bg-white p-6 text-center shadow-[0_28px_90px_rgba(17,34,26,.25)] sm:p-8">
