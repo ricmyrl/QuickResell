@@ -149,7 +149,7 @@ export function ShoppingCartPage({ items, loading, error, session, onShop, onOpe
               <span className="font-display text-base font-semibold text-[#34483b]">Total</span>
               <span className="font-display text-2xl font-bold tracking-[-.03em] text-[#20372d]">{currency.format(subtotalCents / 100)}</span>
             </div>
-            <p className="mt-2 text-[11px] leading-5 text-[#89958e]">{paymentMethod === 'WALLET' ? 'The amount will be deducted from your USD wallet balance.' : 'Paystack will display the final charge in NGN using the current exchange rate before you approve it.'}</p>
+            <p className="mt-2 text-[11px] leading-5 text-[#89958e]">{paymentMethod === 'WALLET' ? 'The amount will be deducted from your naira wallet balance.' : 'Paystack will charge the displayed total in naira.'}</p>
           </div>
           <fieldset className="mt-5 space-y-2">
             <legend className="mb-2 text-xs font-semibold text-[#53665a]">Choose payment method</legend>

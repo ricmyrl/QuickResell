@@ -71,11 +71,11 @@ export function AuctionWatchlistPage({ rules, recentBidAuctionIds, loading, erro
     const existingRule = ruleByAuction.get(auction.id)
     const draft = draftFor(auction.id)
     const maxBid = localToUsd(Number(draft.maxBid))
-    const bidStep = Math.min(existingRule?.bidStep ?? 5, maxBid ?? 5)
+    const bidStep = Math.min(existingRule?.bidStep ?? 6_656.34, maxBid ?? 6_656.34)
     const jumpMultiplier = Number(draft.jumpMultiplier)
     const sniperWindowSeconds = Number(draft.sniperWindowSeconds)
     const marginOfSafetyPercent = Number(draft.marginOfSafety)
-    if (maxBid === null || !Number.isFinite(maxBid) || maxBid <= 0 || maxBid > 10_000_000) {
+    if (maxBid === null || !Number.isFinite(maxBid) || maxBid <= 0 || maxBid > 13_312_670_140) {
       updateDraft(auction.id, { confirmed: false })
       return
     }

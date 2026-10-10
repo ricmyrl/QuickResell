@@ -13,17 +13,17 @@ import { SellerVerdictModal } from '../dashboard/SellerVerdictModal'
 import type { Verdict } from '../../types'
 import { useCurrency } from '../../lib/CurrencyContext'
 
-const maxAllowedBid = 10_000_000
+const maxAllowedBid = 13_312_670_140
 
 export function AuctionRoom({ auction, userId, autoBidRule, onBack, onBid, onExpire, onNotice, onRoomUpdate, onVerdict }: {
   auction: Auction; userId?: string; autoBidRule?: Pick<AuctionWatchlistRule, 'maxBid' | 'bidStep' | 'autoBidEnabled'>; session: Session | null; emailConfirmed: boolean; onRequestSignIn: () => void; onBack: () => void; onBid: (amount: number) => Promise<void>; onExpire: () => Promise<void>
   onNotice: (message: string, kind?: 'success' | 'error') => void; onRoomUpdate: (patch: Partial<Auction>) => void
   onVerdict: (decision: Verdict) => Promise<void>
 }) {
-  const { formatUsd, localToUsd, usdToLocal, displayCurrency, ratesReady } = useCurrency()
+  const { formatUsd, localToUsd, usdToLocal, displayCurrency } = useCurrency()
   const currency = { format: (amount: number) => formatUsd(amount) }
-  const toUsd = (amount: number) => displayCurrency === 'USD' ? amount : localToUsd(amount)
-  const fromUsd = (amount: number) => displayCurrency === 'USD' ? amount : usdToLocal(amount)
+  const toUsd = (amount: number) => localToUsd(amount)
+  const fromUsd = (amount: number) => usdToLocal(amount)
   const countdown = useCountdown(auction.endsAt)
   const [bidding, setBidding] = useState(false)
   const [bids, setBids] = useState(auction.bids)
@@ -46,12 +46,12 @@ export function AuctionRoom({ auction, userId, autoBidRule, onBack, onBid, onExp
   const isActive = auction.status === 'ACTIVE' && !countdown.expired
   
   const bidReferenceAmount = Math.max(auction.currentHighestBid, auction.startingPrice)
-  const minRequiredBid = bidReferenceAmount + 1
+  const minRequiredBid = bidReferenceAmount + 1_331.27
 
   const remainingBidAmount = Math.max(0, maxAllowedBid - bidReferenceAmount)
-  const standardIncrements = [5, 10, 20].filter((increment) => increment <= remainingBidAmount)
+  const standardIncrements = [6_656.34, 13_312.67, 26_625.34].filter((increment) => increment <= remainingBidAmount)
   const bidIncrements = standardIncrements.length > 0 ? standardIncrements : remainingBidAmount > 0 ? [remainingBidAmount] : []
-  const primaryBidIncrement = [20, 10, 5].find((increment) => increment <= remainingBidAmount) ?? remainingBidAmount
+  const primaryBidIncrement = [26_625.34, 13_312.67, 6_656.34].find((increment) => increment <= remainingBidAmount) ?? remainingBidAmount
 
   const defaultNextBid = bidReferenceAmount + primaryBidIncrement
 
@@ -324,7 +324,7 @@ export function AuctionRoom({ auction, userId, autoBidRule, onBack, onBid, onExp
               </div>
               {hasCustomInput && !Number.isFinite(parsedCustomBid) && (
                 <p className="mt-1 text-[11px] font-medium text-[#c7473c]">
-                  {customInputIsNumeric && displayCurrency !== 'USD' && !ratesReady ? 'Currency conversion is unavailable. Try again when rates load.' : 'Enter a valid amount.'}
+                  Enter a valid amount.
                 </p>
               )}
               {hasCustomInput && isTooLow && (

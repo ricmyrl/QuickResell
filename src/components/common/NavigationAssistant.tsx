@@ -97,13 +97,13 @@ function findMatches<T extends { title: string; category: string; location?: str
 }
 
 function extractPriceNumbers(text: string): number[] {
-  const matches = [...text.matchAll(/(?:\$|usd\s*|under\s*|below\s*|up to\s*|budget\s*of\s*)?([\d][\d,]*(?:\.\d{1,2})?)/g)]
+  const matches = [...text.matchAll(/(?:(?:₦|ngn\s*|naira\s*)|under\s*|below\s*|up to\s*|budget\s*of\s*)?([\d][\d,]*(?:\.\d{1,2})?)/g)]
   return matches.map((match) => Number(match[1].replaceAll(',', ''))).filter((amount) => Number.isFinite(amount) && amount >= 0)
 }
 
 function getPriceLimit(text: string, localToUsd: (amount: number) => number | null): number | null {
   const normalized = text.toLowerCase()
-  const directMatch = normalized.match(/(?:under|below|less than|budget of|up to|max(?:imum)?(?:\s+(?:bid|price))?)\s*\$?([\d][\d,]*(?:\.\d{1,2})?)/)
+  const directMatch = normalized.match(/(?:under|below|less than|budget of|up to|max(?:imum)?(?:\s+(?:bid|price))?)\s*(?:₦|ngn\s*|naira\s*)?([\d][\d,]*(?:\.\d{1,2})?)/)
   if (directMatch) return localToUsd(Number(directMatch[1].replaceAll(',', '')))
   const numericMatches = extractPriceNumbers(normalized)
   if (!numericMatches.length) return null
@@ -129,10 +129,10 @@ function answerLocally(text: string, auctions: Auction[], listings: MarketplaceL
   const matchedAuction = auctionMatches[0]
   const matchedListing = listingMatches[0]
 
-  const maximumMatch = normalized.match(/(?:max(?:imum)?(?:\s+(?:bid|price))?|up to|bid limit)(?:\s+of)?\s*:?\s*\$?([\d,]+(?:\.\d{1,2})?)/)
-  const stepMatch = normalized.match(/(?:step|increment|raise by)\s*:?\s*\$?([\d,]+(?:\.\d{1,2})?)/)
+  const maximumMatch = normalized.match(/(?:max(?:imum)?(?:\s+(?:bid|price))?|up to|bid limit)(?:\s+of)?\s*:?\s*(?:₦|ngn\s*|naira\s*)?([\d,]+(?:\.\d{1,2})?)/)
+  const stepMatch = normalized.match(/(?:step|increment|raise by)\s*:?\s*(?:₦|ngn\s*|naira\s*)?([\d,]+(?:\.\d{1,2})?)/)
   const maximum = maximumMatch ? localToUsd(Number(maximumMatch[1].replaceAll(',', ''))) ?? 0 : 0
-  const step = stepMatch ? localToUsd(Number(stepMatch[1].replaceAll(',', ''))) ?? 0 : Math.min(5, maximum)
+  const step = stepMatch ? localToUsd(Number(stepMatch[1].replaceAll(',', ''))) ?? 0 : Math.min(6_656.34, maximum)
   const asksScoutToBid = /\b(auto.?bid|bid on my behalf|bid up to|maximum bid|bid limit|watch|watchlist|wishlist|track this|save this|watch this)\b/.test(normalized)
   const wantsBudgetHelp = /\b(cheap|budget|deal|good value|best value|affordable|under|below|less than|save|lowest price)\b/.test(normalized)
   const wantsRecommendations = /\b(best|recommend|suggest|what should i buy|what should i bid|good pick|worth it)\b/.test(normalized)
@@ -150,7 +150,7 @@ function answerLocally(text: string, auctions: Auction[], listings: MarketplaceL
       }
     }
     return {
-      text: `I found “${matchedAuction.title}” at ${currency(matchedAuction.currentHighestBid)}. Tell me your maximum, for example: “Watch ${matchedAuction.title}, max ${currency(80)}.” You can choose a bidding strategy in the Watchlist. Scout will only prepare the rule; you must enable and authorize it before any bid is placed.`,
+      text: `I found “${matchedAuction.title}” at ${currency(matchedAuction.currentHighestBid)}. Tell me your maximum, for example: “Watch ${matchedAuction.title}, max ${currency(100_000)}.” You can choose a bidding strategy in the Watchlist. Scout will only prepare the rule; you must enable and authorize it before any bid is placed.`,
       intent: 'bid_rule',
       actions: [{ label: 'Open Watchlist', kind: 'navigate', destination: 'watchlist' }],
     }
@@ -185,7 +185,7 @@ function answerLocally(text: string, auctions: Auction[], listings: MarketplaceL
   }
 
   if (asksScoutToBid) {
-    return { text: `Which live auction should I watch? Include its title and maximum price. Example: “Watch Intro Psychology Textbook, max ${currency(80)}.” You can choose a bidding strategy in your Watchlist; Scout will not bid until you authorize it.`, intent: 'bid_rule', actions: [{ label: 'Browse auctions', kind: 'navigate', destination: 'feed' }, { label: 'Open Watchlist', kind: 'navigate', destination: 'watchlist' }] }
+    return { text: `Which live auction should I watch? Include its title and maximum price. Example: “Watch Intro Psychology Textbook, max ${currency(100_000)}.” You can choose a bidding strategy in your Watchlist; Scout will not bid until you authorize it.`, intent: 'bid_rule', actions: [{ label: 'Browse auctions', kind: 'navigate', destination: 'feed' }, { label: 'Open Watchlist', kind: 'navigate', destination: 'watchlist' }] }
   }
 
   if (/\b(watchlist|wishlist|watch my auctions|saved auctions)\b/.test(normalized)) {
@@ -342,7 +342,7 @@ function NavigationAssistant({ auctions, listings, dataReady, onNavigate, onOpen
   const sendMessage = async (rawText: string) => {
     const text = rawText.trim()
     if (!text || isThinking) return
-    const answer = selectedCurrency !== 'USD' && !ratesReady
+    const answer = selectedCurrency !== 'NGN' && !ratesReady
       ? { text: 'Currency rates are still loading. Please try that price request again in a moment.', intent: 'unknown' as const }
       : answerLocally(text, context.auctions, context.listings, currentUserId, auctionWatchlistRules, online, formatUsd, localToUsd)
     const now = Date.now()
@@ -354,7 +354,7 @@ function NavigationAssistant({ auctions, listings, dataReady, onNavigate, onOpen
       { id: assistantId, role: 'assistant' as const, ...answer, createdAt: now + 1 },
     ].slice(-40))
     setDraft('')
-    if (answer.intent !== 'unknown' || !online || (selectedCurrency !== 'USD' && !ratesReady)) return
+    if (answer.intent !== 'unknown' || !online || (selectedCurrency !== 'NGN' && !ratesReady)) return
 
     setIsThinking(true)
     const conversation: ScoutChatMessage[] = [

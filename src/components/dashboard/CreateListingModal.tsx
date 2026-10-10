@@ -17,7 +17,7 @@ export function CreateListingPage({ onClose, session, onCreated, onAuctionCreate
   onCreated: (listing: MarketplaceListing) => void
   onAuctionCreated?: (auction: Auction) => void
 }) {
-  const { currency, displayCurrency, ratesReady, localToUsd } = useCurrency()
+  const { displayCurrency } = useCurrency()
   const [categories, setCategories] = useState<ListingCategory[]>([])
   const [categoriesLoaded, setCategoriesLoaded] = useState(false)
   const [title, setTitle] = useState('')
@@ -108,10 +108,10 @@ export function CreateListingPage({ onClose, session, onCreated, onAuctionCreate
       return
     }
 
-    const priceUsd = localToUsd(Number(price))
-    const originalPriceUsd = originalPrice.trim() ? localToUsd(Number(originalPrice)) : null
-    if (priceUsd === null || (originalPrice.trim() && originalPriceUsd === null)) {
-      setError('Exchange rates are unavailable. Switch to USD or try again later.')
+    const priceNgn = Number(price)
+    const originalPriceNgn = originalPrice.trim() ? Number(originalPrice) : null
+    if (!Number.isFinite(priceNgn) || (originalPriceNgn !== null && !Number.isFinite(originalPriceNgn))) {
+      setError('Enter valid naira prices.')
       return
     }
     const parsedConditionScore = conditionScore.trim() ? Number(conditionScore) : undefined
@@ -127,8 +127,8 @@ export function CreateListingPage({ onClose, session, onCreated, onAuctionCreate
         title: title.trim(),
         description: description.trim(),
         categoryId,
-        price: priceUsd,
-        ...(originalPrice.trim() && originalPriceUsd !== null ? { originalPrice: originalPriceUsd } : {}),
+        price: priceNgn,
+        ...(originalPriceNgn !== null ? { originalPrice: originalPriceNgn } : {}),
         ...(parsedConditionScore !== undefined ? { conditionScore: parsedConditionScore } : {}),
         locationCampus: locationCampus.trim(),
         quantityAvailable: Number(quantityAvailable),
@@ -201,7 +201,6 @@ export function CreateListingPage({ onClose, session, onCreated, onAuctionCreate
       </div>
 
       {error && <p role="alert" className="rounded-lg border border-[#f1d8d3] bg-[#fff5f2] px-3 py-2.5 text-xs leading-5 text-[#a34237]">{error}</p>}
-      {!ratesReady && currency !== 'USD' && <p role="status" className="text-xs text-[#a45145]">Exchange rates are unavailable; price entry is shown in USD until rates load.</p>}
       <div className="flex justify-end gap-2 border-t border-[#edf0ed] pt-4"><Button type="button" variant="secondary" disabled={busy} onClick={onClose}>Cancel</Button><Button type="submit" disabled={busy || !categoriesLoaded || categories.length === 0} icon={busy ? <LoaderCircle size={16} className="animate-spin" /> : <ImagePlus size={16} />}>{busy ? 'Publishing…' : 'Publish product'}</Button></div>
     </form>
   </section>

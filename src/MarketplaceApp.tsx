@@ -665,14 +665,14 @@ export default function MarketplaceApp() {
     }
 
     const bidFloor = Math.max(auction.currentHighestBid, auction.startingPrice)
-    const maxBid = Math.min(10_000_000, bidFloor + 5)
+    const maxBid = Math.min(13_312_670_140, bidFloor + 6_656.34)
     if (!Number.isFinite(maxBid) || maxBid <= bidFloor) {
       showToast('This auction has reached the maximum supported watchlist bid.', 'error')
       return
     }
     await handleSaveAuctionRule(auction.id, {
       maxBid,
-      bidStep: Math.min(5, maxBid),
+      bidStep: Math.min(6_656.34, maxBid),
       strategy: 'STANDARD',
       jumpMultiplier: 2,
       sniperWindowSeconds: 120,

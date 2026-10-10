@@ -7,7 +7,7 @@ import type { SellerWalletPayout } from '../../types'
 import { verifyPasskeyForAction } from '../../services/passkeyVerification'
 
 const quickAmounts = [5000, 10000, 25000, 50000]
-const usdFormatter = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' })
+const ngnFormatter = new Intl.NumberFormat('en-NG', { style: 'currency', currency: 'NGN' })
 const dateFormatter = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' })
 const transactionTitles = {
   TOP_UP: 'Wallet deposit',
@@ -29,7 +29,7 @@ const emptyWallet: WalletData = {
 }
 const canCashOut = (payout: SellerWalletPayout) =>
   (payout.status === 'PENDING' || payout.status === 'BLOCKED')
-  && payout.amountUsdCents > 0
+  && payout.amountCents > 0
   && ['READY_FOR_PICKUP', 'SHIPPED', 'COMPLETED'].includes(payout.fulfillmentStatus)
 
 function payoutStatusLabel(payout: SellerWalletPayout, payoutAccountVerified: boolean) {
@@ -158,7 +158,7 @@ export function WalletPage({ session, emailConfirmed, onRequestSignIn, onAddFund
     <div className="mb-6">
       <p className="text-[11px] font-bold uppercase tracking-[.16em] text-[#658371]">Your account</p>
       <h1 className="font-display mt-1 text-3xl font-semibold tracking-[-.03em] text-[#20372d]">Wallet</h1>
-      <p className="mt-2 text-sm text-[#7b8880]">Fund your wallet through Paystack in naira. Deposits are converted to USD for your wallet balance and checkout.</p>
+      <p className="mt-2 text-sm text-[#7b8880]">Fund your wallet through Paystack in naira. Your balance and checkout are all in naira.</p>
     </div>
 
     {!emailConfirmed && <div role="status" className="mb-5 rounded-xl border border-[#ead9b0] bg-[#fff9e9] px-4 py-3 text-sm text-[#765b22]">Confirm your email before adding money to your wallet.</div>}
@@ -172,7 +172,7 @@ export function WalletPage({ session, emailConfirmed, onRequestSignIn, onAddFund
         <p className="mt-8 text-xs font-semibold uppercase tracking-[.12em] text-white/65">QuickResell wallet</p>
         {loading
           ? <div className="mt-2 flex h-10 items-center gap-2 text-sm text-white/75"><LoaderCircle size={16} className="animate-spin" />Loading balance…</div>
-          : <p className="font-display mt-2 text-4xl font-semibold tracking-[-.04em]">{usdFormatter.format(wallet.balanceCents / 100)}</p>}
+          : <p className="font-display mt-2 text-4xl font-semibold tracking-[-.04em]">{ngnFormatter.format(wallet.balanceCents / 100)}</p>}
         <div className="mt-8 flex items-center gap-2 border-t border-white/15 pt-4 text-xs text-white/70"><LockKeyhole size={14} />Payments are verified securely by Paystack.</div>
       </section>
 
@@ -219,7 +219,7 @@ export function WalletPage({ session, emailConfirmed, onRequestSignIn, onAddFund
           <p className="text-xs font-medium text-[#7d8981]">{balance.label}</p>
           {loading
             ? <div className="mt-2 h-7 animate-pulse rounded bg-[#edf1ed]" />
-            : <p className="font-display mt-2 text-2xl font-semibold text-[#2a4034]">{usdFormatter.format(balance.cents / 100)}</p>}
+            : <p className="font-display mt-2 text-2xl font-semibold text-[#2a4034]">{ngnFormatter.format(balance.cents / 100)}</p>}
         </div>)}
       </div>
       {!wallet.sellerEarnings.payoutAccountVerified && wallet.sellerEarnings.readyForCashoutCents > 0 && <div className="mx-4 mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#ead9b0] bg-[#fff9e9] px-4 py-3 sm:mx-5">
@@ -232,7 +232,7 @@ export function WalletPage({ session, emailConfirmed, onRequestSignIn, onAddFund
           {wallet.sellerEarnings.payouts.map((payout) => <li key={payout.id} className="flex flex-wrap items-center gap-3 px-5 py-4 sm:px-6">
             <span className={`grid size-9 shrink-0 place-items-center rounded-xl ${payout.status === 'SUCCESS' ? 'bg-[#eef6ee] text-[#4f805a]' : 'bg-[#f1f4ef] text-[#718078]'}`}>{payout.status === 'SUCCESS' ? <BadgeCheck size={17} /> : <CircleDollarSign size={17} />}</span>
             <span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold text-[#35483b]">{payout.title}</span><span className="mt-1 block text-xs text-[#89958e]">{dateFormatter.format(new Date(payout.createdAt))} · {payoutStatusLabel(payout, wallet.sellerEarnings.payoutAccountVerified)}</span></span>
-            <span className="text-sm font-semibold text-[#405549]">{usdFormatter.format(payout.amountUsdCents / 100)}</span>
+            <span className="text-sm font-semibold text-[#405549]">{ngnFormatter.format(payout.amountCents / 100)}</span>
             {canCashOut(payout) && wallet.sellerEarnings.payoutAccountVerified && <Button disabled={!emailConfirmed || cashoutBusyId === payout.id} onClick={() => void cashOut(payout)} icon={cashoutBusyId === payout.id ? <LoaderCircle size={14} className="animate-spin" /> : <ArrowUpRight size={14} />} className="min-h-9 px-3 text-xs">{cashoutBusyId === payout.id ? 'Requesting…' : 'Cash out'}</Button>}
           </li>)}
         </ul>}
@@ -250,7 +250,7 @@ export function WalletPage({ session, emailConfirmed, onRequestSignIn, onAddFund
           {wallet.transactions.map((transaction) => <li key={transaction.id} className="flex items-center gap-3 px-5 py-4 sm:px-6">
             <span className={`grid size-9 place-items-center rounded-xl ${transaction.direction === 'CREDIT' ? 'bg-[#eef6ee] text-[#4f805a]' : 'bg-[#f4f2ee] text-[#83775f]'}`}>{transaction.direction === 'CREDIT' ? <ArrowDownToLine size={16} /> : <ArrowUpRight size={16} />}</span>
             <span className="min-w-0 flex-1"><span className="block text-sm font-semibold text-[#35483b]">{transaction.orderItem?.title ? `${transactionTitles[transaction.type]} · ${transaction.orderItem.title}` : transactionTitles[transaction.type]}</span><span className="mt-1 block text-xs text-[#89958e]">{dateFormatter.format(new Date(transaction.createdAt))}</span></span>
-            <span className={`text-sm font-semibold ${transaction.direction === 'CREDIT' ? 'text-[#477358]' : 'text-[#83775f]'}`}>{transaction.direction === 'CREDIT' ? '+' : '−'}{usdFormatter.format(transaction.amountCents / 100)}</span>
+            <span className={`text-sm font-semibold ${transaction.direction === 'CREDIT' ? 'text-[#477358]' : 'text-[#83775f]'}`}>{transaction.direction === 'CREDIT' ? '+' : '−'}{ngnFormatter.format(transaction.amountCents / 100)}</span>
           </li>)}
         </ul>}
     </section>

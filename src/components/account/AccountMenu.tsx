@@ -124,8 +124,8 @@ function AccountPage({ session, section, onClose, onDeleted }: {
     try {
       const parsedBudget = budget.trim() ? Number(budget) : null
       if (campus.trim().length > 120) throw new Error('Campus or area must be 120 characters or fewer.')
-      if (parsedBudget !== null && (!Number.isFinite(parsedBudget) || parsedBudget < 0 || parsedBudget > 100000)) {
-        throw new Error('Enter a budget between 0 and 100,000, or leave it blank.')
+      if (parsedBudget !== null && (!Number.isFinite(parsedBudget) || parsedBudget < 0 || parsedBudget > 200_000_000)) {
+        throw new Error('Enter a budget between 0 and 200,000,000 naira, or leave it blank.')
       }
       const updatedProfile = await updateAccountPreferences({
         preferredDormOrCampus: campus.trim(),
@@ -223,7 +223,7 @@ function AccountPage({ session, section, onClose, onDeleted }: {
           {section === 'preferences' && <form onSubmit={(event) => void savePreferences(event)} className="space-y-5">
             <div><h3 className="font-display text-lg font-semibold text-[#2b4035]">Shopping preferences</h3><p className="mt-1 text-xs leading-5 text-[#7f8c84]">Help Scout and the marketplace make more relevant recommendations. You can change or clear these any time.</p></div>
             <label className="block"><span className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold text-[#52645a]"><MapPin size={14} />Preferred campus or area</span><input maxLength={120} value={campus} onChange={(event) => setCampus(event.target.value)} className="h-11 w-full rounded-xl border border-[#dfe7e1] bg-white px-3.5 text-sm text-[#273a30] outline-none transition focus:border-[#87a58e] focus:ring-2 focus:ring-[#e5efe7]" placeholder="e.g. North Campus" /><span className="mt-1.5 block text-[10px] text-[#909b94]">Used to prioritize nearby listings and pickup options.</span></label>
-            <label className="block"><span className="mb-1.5 block text-xs font-semibold text-[#52645a]">Typical shopping budget (USD)</span><input type="number" min="0" max="100000" step="1" inputMode="decimal" value={budget} onChange={(event) => setBudget(event.target.value)} className="h-11 w-full rounded-xl border border-[#dfe7e1] bg-white px-3.5 text-sm text-[#273a30] outline-none transition focus:border-[#87a58e] focus:ring-2 focus:ring-[#e5efe7]" placeholder="Leave blank to skip" /><span className="mt-1.5 block text-[10px] text-[#909b94]">Optional; this is a recommendation preference, not a spending limit.</span></label>
+            <label className="block"><span className="mb-1.5 block text-xs font-semibold text-[#52645a]">Typical shopping budget (NGN)</span><input type="number" min="0" max="200000000" step="1" inputMode="decimal" value={budget} onChange={(event) => setBudget(event.target.value)} className="h-11 w-full rounded-xl border border-[#dfe7e1] bg-white px-3.5 text-sm text-[#273a30] outline-none transition focus:border-[#87a58e] focus:ring-2 focus:ring-[#e5efe7]" placeholder="Leave blank to skip" /><span className="mt-1.5 block text-[10px] text-[#909b94]">Optional; this is a recommendation preference, not a spending limit.</span></label>
             <Button disabled={busy} className="min-w-36 justify-center">{busy ? <><LoaderCircle size={15} className="animate-spin" />Saving…</> : 'Save preferences'}</Button>
           </form>}
 
