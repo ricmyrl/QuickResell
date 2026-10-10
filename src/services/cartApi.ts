@@ -1,6 +1,6 @@
 import type { Session } from '@supabase/supabase-js'
 import { resolveSession } from '../lib/resolveSession'
-import type { FulfillmentMethod, ListingReactionCounts, ListingReactionType, MarketplaceListing, PurchaseOrder, SellerOrderItem, ShoppingCartItem } from '../types'
+import type { FulfillmentMethod, ListingReactionCounts, ListingReactionType, MarketplaceListing, PurchaseOrder, SellerOrderItem, SellerWalletPayout, ShoppingCartItem } from '../types'
 
 const pageHostApiUrl = typeof window !== 'undefined' && window.location.protocol === 'http:'
   ? `http://${window.location.hostname}:3000/api`
@@ -156,6 +156,14 @@ export async function verifyPayment(reference: string, session?: Session | null)
 export type WalletData = {
   balanceCents: number
   transactions: Array<{ id: string; amountCents: number; paymentReference: string; createdAt: string }>
+  sellerEarnings: {
+    earnedCents: number
+    pendingFulfillmentCents: number
+    readyForCashoutCents: number
+    paidOutCents: number
+    payoutAccountVerified: boolean
+    payouts: SellerWalletPayout[]
+  }
 }
 
 export async function getWallet(session?: Session | null): Promise<WalletData> {

@@ -140,6 +140,17 @@ export type SellerOrderItem = PurchaseOrderItem & {
   }
 }
 
+export type SellerWalletPayout = {
+  id: string
+  orderId: string
+  orderItemId: string
+  title: string
+  amountUsdCents: number
+  status: NonNullable<SellerOrderItem['sellerPayout']>['status']
+  fulfillmentStatus: OrderItemFulfillmentStatus
+  createdAt: string
+}
+
 export type NotificationItem = {
   id: string
   userId: string

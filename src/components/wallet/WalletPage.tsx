@@ -1,23 +1,54 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import type { Session } from '@supabase/supabase-js'
-import { ArrowDownToLine, Clock3, LoaderCircle, LockKeyhole, RefreshCw, WalletCards } from 'lucide-react'
+import { ArrowDownToLine, ArrowUpRight, BadgeCheck, CircleDollarSign, Clock3, LoaderCircle, LockKeyhole, RefreshCw, WalletCards } from 'lucide-react'
 import { Button } from '../common/Button'
-import { getWallet, type WalletData } from '../../services/cartApi'
+import { cashOutSellerOrderItem, getWallet, type WalletData } from '../../services/cartApi'
+import type { SellerWalletPayout } from '../../types'
+import { verifyPasskeyForAction } from '../../services/passkeyVerification'
 
 const quickAmounts = [10, 25, 50, 100]
 const usdFormatter = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' })
 const dateFormatter = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+const emptyWallet: WalletData = {
+  balanceCents: 0,
+  transactions: [],
+  sellerEarnings: {
+    earnedCents: 0,
+    pendingFulfillmentCents: 0,
+    readyForCashoutCents: 0,
+    paidOutCents: 0,
+    payoutAccountVerified: false,
+    payouts: [],
+  },
+}
+const canCashOut = (payout: SellerWalletPayout) =>
+  (payout.status === 'PENDING' || payout.status === 'BLOCKED')
+  && payout.amountUsdCents > 0
+  && ['READY_FOR_PICKUP', 'SHIPPED', 'COMPLETED'].includes(payout.fulfillmentStatus)
 
-export function WalletPage({ session, emailConfirmed, onRequestSignIn, onAddFunds }: {
+function payoutStatusLabel(payout: SellerWalletPayout, payoutAccountVerified: boolean) {
+  if (payout.status === 'SUCCESS') return 'Paid out'
+  if (payout.status === 'PROCESSING') return 'Transfer processing'
+  if (payout.status === 'REVIEW_REQUIRED') return 'Transfer needs review'
+  if (payout.status === 'FAILED') return 'Transfer failed — contact support'
+  if (payout.status === 'REVERSED') return 'Transfer reversed — contact support'
+  if (payout.fulfillmentStatus === 'PENDING_HANDOFF') return 'Awaiting fulfillment'
+  if (!payoutAccountVerified) return 'Verify payout account to cash out'
+  return payout.status === 'BLOCKED' ? 'Payout blocked — contact support' : 'Ready to cash out'
+}
+
+export function WalletPage({ session, emailConfirmed, onRequestSignIn, onAddFunds, onRequestSellerVerification }: {
   session: Session | null
   emailConfirmed: boolean
   onRequestSignIn: () => void
   onAddFunds: (amountCents: number) => Promise<void>
+  onRequestSellerVerification: () => void
 }) {
-  const [wallet, setWallet] = useState<WalletData>({ balanceCents: 0, transactions: [] })
+  const [wallet, setWallet] = useState<WalletData>(emptyWallet)
   const [amount, setAmount] = useState('25')
   const [loading, setLoading] = useState(Boolean(session && emailConfirmed))
   const [busy, setBusy] = useState(false)
+  const [cashoutBusyId, setCashoutBusyId] = useState<string | null>(null)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
 
@@ -33,6 +64,26 @@ export function WalletPage({ session, emailConfirmed, onRequestSignIn, onAddFund
       setLoading(false)
     }
   }, [session, emailConfirmed])
+
+  const cashOut = async (payout: SellerWalletPayout) => {
+    if (!session || !canCashOut(payout) || !wallet.sellerEarnings.payoutAccountVerified) return
+    setCashoutBusyId(payout.id)
+    setError('')
+    setNotice('')
+    try {
+      const result = await verifyPasskeyForAction(session, () => cashOutSellerOrderItem(payout.orderItemId, session))
+      await refreshWallet()
+      setNotice(
+        result.status === 'SUCCESS'
+          ? 'Paystack reports the transfer as successful. Check your bank account to confirm receipt.'
+          : 'Cash-out requested. Refresh your wallet to see Paystack transfer updates.',
+      )
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'The payout could not be requested.')
+    } finally {
+      setCashoutBusyId(null)
+    }
+  }
 
   useEffect(() => {
     if (!session || !emailConfirmed) return
@@ -145,9 +196,46 @@ export function WalletPage({ session, emailConfirmed, onRequestSignIn, onAddFund
     </div>
 
     <section className="mt-7 overflow-hidden rounded-[22px] border border-[#e2e9e3] bg-white">
+      <div className="border-b border-[#edf1ed] px-5 py-4 sm:px-6">
+        <div className="flex items-center gap-3">
+          <span className="grid size-10 place-items-center rounded-xl bg-[#edf4ed] text-[#315f49]"><CircleDollarSign size={19} /></span>
+          <div><h2 className="text-sm font-semibold text-[#30483a]">Seller earnings</h2><p className="mt-1 text-xs text-[#87938b]">Net proceeds from paid orders, separate from wallet deposits.</p></div>
+        </div>
+      </div>
+      <div className="grid gap-3 p-4 sm:grid-cols-2 sm:p-5 lg:grid-cols-4">
+        {[
+          { label: 'Total from paid orders', cents: wallet.sellerEarnings.earnedCents },
+          { label: 'Awaiting fulfillment', cents: wallet.sellerEarnings.pendingFulfillmentCents },
+          { label: 'Ready to cash out', cents: wallet.sellerEarnings.readyForCashoutCents },
+          { label: 'Paid out', cents: wallet.sellerEarnings.paidOutCents },
+        ].map((balance) => <div key={balance.label} className="rounded-xl border border-[#e8eee8] bg-[#f9fbf9] p-4">
+          <p className="text-xs font-medium text-[#7d8981]">{balance.label}</p>
+          {loading
+            ? <div className="mt-2 h-7 animate-pulse rounded bg-[#edf1ed]" />
+            : <p className="font-display mt-2 text-2xl font-semibold text-[#2a4034]">{usdFormatter.format(balance.cents / 100)}</p>}
+        </div>)}
+      </div>
+      {!wallet.sellerEarnings.payoutAccountVerified && wallet.sellerEarnings.readyForCashoutCents > 0 && <div className="mx-4 mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#ead9b0] bg-[#fff9e9] px-4 py-3 sm:mx-5">
+        <p className="flex items-center gap-2 text-xs leading-5 text-[#765b22]"><LockKeyhole size={14} />Verify your payout bank account before cashing out these fulfilled sales.</p>
+        <Button variant="secondary" onClick={onRequestSellerVerification} className="min-h-8 px-3 text-xs">Verify payout account <ArrowUpRight size={13} /></Button>
+      </div>}
+      {wallet.sellerEarnings.payouts.length === 0
+        ? <div className="border-t border-[#edf1ed] px-5 py-8 text-center text-sm text-[#87938b]">Paid sales with tracked earnings will appear here.</div>
+        : <ul className="divide-y divide-[#edf1ed] border-t border-[#edf1ed]">
+          {wallet.sellerEarnings.payouts.map((payout) => <li key={payout.id} className="flex flex-wrap items-center gap-3 px-5 py-4 sm:px-6">
+            <span className={`grid size-9 shrink-0 place-items-center rounded-xl ${payout.status === 'SUCCESS' ? 'bg-[#eef6ee] text-[#4f805a]' : 'bg-[#f1f4ef] text-[#718078]'}`}>{payout.status === 'SUCCESS' ? <BadgeCheck size={17} /> : <CircleDollarSign size={17} />}</span>
+            <span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold text-[#35483b]">{payout.title}</span><span className="mt-1 block text-xs text-[#89958e]">{dateFormatter.format(new Date(payout.createdAt))} · {payoutStatusLabel(payout, wallet.sellerEarnings.payoutAccountVerified)}</span></span>
+            <span className="text-sm font-semibold text-[#405549]">{usdFormatter.format(payout.amountUsdCents / 100)}</span>
+            {canCashOut(payout) && wallet.sellerEarnings.payoutAccountVerified && <Button disabled={!emailConfirmed || cashoutBusyId === payout.id} onClick={() => void cashOut(payout)} icon={cashoutBusyId === payout.id ? <LoaderCircle size={14} className="animate-spin" /> : <ArrowUpRight size={14} />} className="min-h-9 px-3 text-xs">{cashoutBusyId === payout.id ? 'Requesting…' : 'Cash out'}</Button>}
+          </li>)}
+        </ul>}
+      {wallet.sellerEarnings.payouts.length > 0 && <p className="border-t border-[#edf1ed] px-5 py-3 text-[11px] leading-5 text-[#89958e] sm:px-6">Cash out each fulfilled sale when you’re ready. Transfers require a verified payout account and passkey confirmation; settlement is in Nigerian naira.</p>}
+    </section>
+
+    <section className="mt-7 overflow-hidden rounded-[22px] border border-[#e2e9e3] bg-white">
       <div className="flex items-center justify-between border-b border-[#edf1ed] px-5 py-4 sm:px-6">
         <div><h2 className="text-sm font-semibold text-[#30483a]">Recent deposits</h2><p className="mt-1 text-xs text-[#87938b]">Your latest completed wallet top-ups</p></div>
-        <button type="button" onClick={() => void refreshWallet()} disabled={loading || !emailConfirmed} aria-label="Refresh wallet balance and deposits" className="grid size-9 place-items-center rounded-lg text-[#728279] transition hover:bg-[#f2f6f2] disabled:opacity-50"><RefreshCw size={15} className={loading ? 'animate-spin' : ''} /></button>
+        <button type="button" onClick={() => void refreshWallet()} disabled={loading || !emailConfirmed} aria-label="Refresh wallet, seller earnings, and deposits" className="grid size-9 place-items-center rounded-lg text-[#728279] transition hover:bg-[#f2f6f2] disabled:opacity-50"><RefreshCw size={15} className={loading ? 'animate-spin' : ''} /></button>
       </div>
       {wallet.transactions.length === 0
         ? <div className="px-5 py-10 text-center text-sm text-[#87938b]"><Clock3 size={19} className="mx-auto mb-2 text-[#a3aea6]" />Completed deposits will appear here.</div>
