@@ -178,6 +178,7 @@ export type WalletData = {
     pendingFulfillmentCents: number
     readyForCashoutCents: number
     paidOutCents: number
+    legacyReconciliationCents: number
     payoutAccountVerified: boolean
     payouts: SellerWalletPayout[]
   }

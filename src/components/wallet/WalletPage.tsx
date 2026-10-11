@@ -23,6 +23,7 @@ const emptyWallet: WalletData = {
     pendingFulfillmentCents: 0,
     readyForCashoutCents: 0,
     paidOutCents: 0,
+    legacyReconciliationCents: 0,
     payoutAccountVerified: false,
     payouts: [],
   },
@@ -36,7 +37,11 @@ const canCashOut = (payout: SellerWalletPayout) =>
 function payoutStatusLabel(payout: SellerWalletPayout, payoutAccountVerified: boolean) {
   if (payout.withdrawnCents >= payout.amountCents) return 'Included in a wallet withdrawal'
   if (payout.withdrawnCents > 0) return 'Partially included in a wallet withdrawal'
-  if (payout.status === 'NOT_TRACKED') return 'Historical sale · payout needs reconciliation'
+  if (payout.status === 'NOT_TRACKED') {
+    return payout.fulfillmentStatus === 'PENDING_HANDOFF'
+      ? 'Awaiting fulfillment'
+      : 'Legacy sale · payout needs reconciliation'
+  }
   if (payout.status === 'SUCCESS') return 'Paid out'
   if (payout.status === 'PROCESSING') return 'Transfer processing'
   if (payout.status === 'REVIEW_REQUIRED') return 'Transfer needs review'
@@ -270,11 +275,12 @@ export function WalletPage({ session, emailConfirmed, onRequestSignIn, onAddFund
           <div><h2 className="text-sm font-semibold text-[#30483a]">Seller earnings</h2><p className="mt-1 text-xs text-[#87938b]">Net proceeds from paid orders, separate from wallet deposits.</p></div>
         </div>
       </div>
-      <div className="grid gap-3 p-4 sm:grid-cols-2 sm:p-5 lg:grid-cols-4">
+      <div className="grid gap-3 p-4 sm:grid-cols-2 sm:p-5 lg:grid-cols-5">
         {[
           { label: 'Total from paid orders', cents: wallet.sellerEarnings.earnedCents },
           { label: 'Awaiting fulfillment', cents: wallet.sellerEarnings.pendingFulfillmentCents },
           { label: 'Ready to cash out', cents: wallet.sellerEarnings.readyForCashoutCents },
+          { label: 'Legacy · pending review', cents: wallet.sellerEarnings.legacyReconciliationCents },
           { label: 'Paid out', cents: wallet.sellerEarnings.paidOutCents },
         ].map((balance) => <div key={balance.label} className="rounded-xl border border-[#e8eee8] bg-[#f9fbf9] p-4">
           <p className="text-xs font-medium text-[#7d8981]">{balance.label}</p>
@@ -283,6 +289,9 @@ export function WalletPage({ session, emailConfirmed, onRequestSignIn, onAddFund
             : <p className="font-display mt-2 text-2xl font-semibold text-[#2a4034]">{ngnFormatter.format(balance.cents / 100)}</p>}
         </div>)}
       </div>
+      {wallet.sellerEarnings.legacyReconciliationCents > 0 && <div role="status" className="mx-4 mb-4 rounded-xl border border-[#ead9b0] bg-[#fff9e9] px-4 py-3 text-xs leading-5 text-[#765b22] sm:mx-5">
+        Legacy fulfilled sales totaling {ngnFormatter.format(wallet.sellerEarnings.legacyReconciliationCents / 100)} have no tracked payout record. They are not included in your withdrawable balance until their payout history has been checked against Paystack. Contact support to request reconciliation.
+      </div>}
       {!wallet.sellerEarnings.payoutAccountVerified && wallet.sellerEarnings.readyForCashoutCents > 0 && <div className="mx-4 mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#ead9b0] bg-[#fff9e9] px-4 py-3 sm:mx-5">
         <p className="flex items-center gap-2 text-xs leading-5 text-[#765b22]"><LockKeyhole size={14} />Verify your payout bank account before cashing out these fulfilled sales.</p>
         <Button variant="secondary" onClick={onRequestSellerVerification} className="min-h-8 px-3 text-xs">Verify payout account <ArrowUpRight size={13} /></Button>
