@@ -5,5 +5,5 @@ export function Badge({ children, className = '' }: { children: ReactNode; class
 }
 
 export function LiveBadge() {
-  return <Badge className="live-pulse bg-[#d94b3d] text-white"><span className="size-1.5 rounded-full bg-white" />Live bid</Badge>
+  return <Badge className="animate-live-pulse bg-[#d94b3d] text-white"><span className="size-1.5 rounded-full bg-white" />Live bid</Badge>
 }

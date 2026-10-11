@@ -202,7 +202,7 @@ function SellerStudio({ auctions, userId, trustScore, completedAuctions, session
     return <SellerVerificationPage session={session} emailConfirmed={emailConfirmed} onRequestSignIn={onRequestSignIn} onVerified={() => navigate('/seller/products/new')} />
   }
 
-  return <section className="min-w-0 pb-2 enter-up">
+  return <section className="min-w-0 pb-2 animate-enter-up">
     <div className="relative mb-6 overflow-hidden rounded-[18px] border border-[#dfe8dc] bg-[#edf4e9] px-5 py-6 sm:px-7 sm:py-7">
       <div className="relative z-10 flex flex-wrap items-end justify-between gap-5">
         <div className="max-w-2xl">

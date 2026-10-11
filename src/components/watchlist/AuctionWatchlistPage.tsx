@@ -107,7 +107,7 @@ export function AuctionWatchlistPage({ rules, recentBidAuctionIds, loading, erro
     return leftRecent - rightRecent || Number(right.autoBidEnabled) - Number(left.autoBidEnabled)
   })
 
-  return <section className="min-w-0 pb-4 enter-up">
+  return <section className="min-w-0 pb-4 animate-enter-up">
     <header className="mb-6 flex flex-wrap items-end justify-between gap-4">
       <div><p className="mb-2 inline-flex items-center gap-2 text-[10px] font-bold uppercase tracking-[.14em] text-[#647b62]"><Eye size={13} /> Personal watchlist</p><h1 className="font-display text-[30px] font-semibold leading-tight text-[#20382c] sm:text-[34px]">Set your price. Scout watches.</h1><p className="mt-2 max-w-2xl text-sm leading-6 text-[#78867d]">Save auctions, set a hard maximum, and choose a bidding strategy for each saved auction. Your rules stay yours.</p></div>
       <div className="flex items-center gap-2 rounded-xl border border-[#e0e8df] bg-white px-3 py-2 text-xs text-[#708074]"><ShieldCheck size={15} className="text-[#5a805a]" /> Bids never exceed your max</div>
