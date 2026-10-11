@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { AlertTriangle, LoaderCircle, ShieldCheck } from 'lucide-react'
-import { verifyPayment, verifyWalletTopUp } from '../../services/cartApi'
+import { CartApiError, verifyPayment, verifyWalletTopUp } from '../../services/cartApi'
 import { Button } from '../common/Button'
 
 type PaymentType = 'CART_CHECKOUT' | 'WALLET_TOPUP'
@@ -18,9 +18,35 @@ export function PaystackReturnPage({ reference, transactionType, session, authLo
 }) {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(true)
+  const [manualRetrying, setManualRetrying] = useState(false)
   const attempted = useRef(false)
   const callbacks = useRef({ onRequestSignIn, onCompleteCheckout, onComplete })
   callbacks.current = { onRequestSignIn, onCompleteCheckout, onComplete }
+
+  const handleRetryPaymentCheck = async () => {
+    setManualRetrying(true)
+    setError('')
+    setBusy(true)
+    try {
+      if (transactionType === 'CART_CHECKOUT') {
+        const result = await verifyPayment(reference, session)
+        if (!result.verified) throw new Error('This payment has not been confirmed by Paystack yet.')
+        await callbacks.current.onCompleteCheckout(reference)
+      } else {
+        const result = await verifyWalletTopUp(reference, session)
+        if (!result.verified) throw new Error('This wallet deposit has not been confirmed by Paystack yet.')
+      }
+      callbacks.current.onComplete(transactionType)
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : 'The payment could not be confirmed. Contact support with your Paystack reference.'
+      const requestId = caught instanceof CartApiError ? caught.requestId : undefined
+      const supportMessage = `${message} If your bank shows a charge, do not pay again; contact support with your Paystack reference.`
+      setError(requestId ? `${supportMessage} Support reference: ${requestId}` : supportMessage)
+      setBusy(false)
+    } finally {
+      setManualRetrying(false)
+    }
+  }
 
   useEffect(() => {
     if (authLoading || attempted.current) return
@@ -44,8 +70,6 @@ export function PaystackReturnPage({ reference, transactionType, session, authLo
     void (async () => {
       try {
         if (transactionType === 'CART_CHECKOUT') {
-          const result = await verifyPayment(reference, session)
-          if (!result.verified) throw new Error('Paystack could not verify this checkout.')
           await callbacks.current.onCompleteCheckout(reference)
         } else {
           const result = await verifyWalletTopUp(reference, session)
@@ -54,7 +78,10 @@ export function PaystackReturnPage({ reference, transactionType, session, authLo
         if (!cancelled) callbacks.current.onComplete(transactionType)
       } catch (caught) {
         if (!cancelled) {
-          setError(caught instanceof Error ? caught.message : 'The payment could not be confirmed. Contact support with your Paystack reference.')
+          const message = caught instanceof Error ? caught.message : 'The payment could not be confirmed. Contact support with your Paystack reference.'
+          const requestId = caught instanceof CartApiError ? caught.requestId : undefined
+          const supportMessage = `${message} If your bank shows a charge, do not pay again; contact support with your Paystack reference.`
+          setError(requestId ? `${supportMessage} Support reference: ${requestId}` : supportMessage)
           setBusy(false)
         }
       }
@@ -70,7 +97,12 @@ export function PaystackReturnPage({ reference, transactionType, session, authLo
       <h1 className="font-display mt-5 text-2xl font-semibold text-[#20372d]">{error ? 'Payment needs attention' : 'Confirming your payment'}</h1>
       <p className="mt-2 text-sm leading-6 text-[#748279]">{error ? error : 'We’re verifying the transaction securely with Paystack. Keep this page open for a moment.'}</p>
       <p className="mt-4 break-all font-mono text-[11px] text-[#87938c]">Reference: {reference || 'missing'}</p>
-      {error && <Button onClick={() => window.location.assign(transactionType === 'WALLET_TOPUP' ? '/wallet' : '/cart')} className="mt-6 w-full justify-center">Return to {transactionType === 'WALLET_TOPUP' ? 'wallet' : 'cart'}</Button>}
+      {error && <>
+        <Button onClick={handleRetryPaymentCheck} disabled={manualRetrying} className="mt-6 w-full justify-center">
+          {manualRetrying ? 'Checking payment…' : 'Request payment check'}
+        </Button>
+        <Button onClick={() => window.location.assign(transactionType === 'WALLET_TOPUP' ? '/wallet' : '/cart')} className="mt-3 w-full justify-center">Return to {transactionType === 'WALLET_TOPUP' ? 'wallet' : 'cart'}</Button>
+      </>}
     </section>
   </div>
 }
