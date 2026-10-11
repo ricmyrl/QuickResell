@@ -240,6 +240,15 @@ export async function cashOutSellerOrderItem(itemId: string, session: Session): 
   return result.payout
 }
 
+export async function reconcileSellerPayoutStatus(itemId: string, session: Session): Promise<NonNullable<SellerOrderItem['sellerPayout']>> {
+  const result = await request<{ payout: NonNullable<SellerOrderItem['sellerPayout']> }>(
+    `/seller/orders/${encodeURIComponent(itemId)}/reconcile`,
+    { method: 'POST' },
+    session,
+  )
+  return result.payout
+}
+
 export async function updateOrderFulfillment(itemId: string, method: FulfillmentMethod, session: Session): Promise<SellerOrderItem> {
   const result = await request<{ item: SellerOrderItem }>(`/seller/orders/${encodeURIComponent(itemId)}/fulfillment`, {
     method: 'POST',

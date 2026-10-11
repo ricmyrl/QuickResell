@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { ArrowDownToLine, ArrowUpRight, BadgeCheck, CircleDollarSign, Clock3, LoaderCircle, LockKeyhole, RefreshCw, WalletCards } from 'lucide-react'
 import { Button } from '../common/Button'
-import { cashOutSellerOrderItem, getWallet, type WalletData, withdrawSellerEarnings } from '../../services/cartApi'
+import { cashOutSellerOrderItem, getWallet, reconcileSellerPayoutStatus, type WalletData, withdrawSellerEarnings } from '../../services/cartApi'
 import type { SellerWalletPayout } from '../../types'
 import { verifyPasskeyForAction } from '../../services/passkeyVerification'
 
@@ -66,6 +66,7 @@ export function WalletPage({ session, emailConfirmed, onRequestSignIn, onAddFund
   const [busy, setBusy] = useState(false)
   const [withdrawBusy, setWithdrawBusy] = useState(false)
   const [cashoutBusyId, setCashoutBusyId] = useState<string | null>(null)
+  const [reconcileBusyId, setReconcileBusyId] = useState<string | null>(null)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const availableToWithdrawCents = Math.min(wallet.sellerEarnings.readyForCashoutCents, wallet.balanceCents)
@@ -100,6 +101,32 @@ export function WalletPage({ session, emailConfirmed, onRequestSignIn, onAddFund
       setError(caught instanceof Error ? caught.message : 'The payout could not be requested.')
     } finally {
       setCashoutBusyId(null)
+    }
+  }
+
+  const reconcilePayout = async (payout: SellerWalletPayout) => {
+    if (!session) return
+    setReconcileBusyId(payout.id)
+    setError('')
+    setNotice('')
+    try {
+      const result = await reconcileSellerPayoutStatus(payout.orderItemId, session)
+      await refreshWallet()
+      setNotice(
+        result.status === 'SUCCESS'
+          ? 'Paystack confirms this transfer succeeded. Check your bank account.'
+          : result.status === 'FAILED'
+            ? 'Paystack confirms this transfer failed. The amount has been returned to your wallet.'
+            : result.status === 'REVERSED'
+              ? 'Paystack confirms this transfer was reversed. The amount has been returned to your wallet.'
+              : result.status === 'REVIEW_REQUIRED'
+                ? 'Paystack still requires action on this transfer. Contact support; do not cash out again.'
+                : 'Paystack reports that this transfer is still processing. Check again later.',
+      )
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Paystack could not confirm the transfer status.')
+    } finally {
+      setReconcileBusyId(null)
     }
   }
 
@@ -324,6 +351,7 @@ export function WalletPage({ session, emailConfirmed, onRequestSignIn, onAddFund
             <span className={`grid size-9 shrink-0 place-items-center rounded-xl ${payout.status === 'SUCCESS' ? 'bg-[#eef6ee] text-[#4f805a]' : 'bg-[#f1f4ef] text-[#718078]'}`}>{payout.status === 'SUCCESS' ? <BadgeCheck size={17} /> : <CircleDollarSign size={17} />}</span>
             <span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold text-[#35483b]">{payout.title}</span><span className="mt-1 block text-xs text-[#89958e]">{dateFormatter.format(new Date(payout.createdAt))} · {payoutStatusLabel(payout, wallet.sellerEarnings.payoutAccountVerified)}</span></span>
             <span className="text-sm font-semibold text-[#405549]">{ngnFormatter.format(payout.amountCents / 100)}</span>
+            {(payout.status === 'REVIEW_REQUIRED' || payout.status === 'PROCESSING') && <Button variant="secondary" disabled={!emailConfirmed || reconcileBusyId === payout.id} onClick={() => void reconcilePayout(payout)} icon={<RefreshCw size={14} className={reconcileBusyId === payout.id ? 'animate-spin' : ''} />} className="min-h-9 px-3 text-xs">{reconcileBusyId === payout.id ? 'Checking…' : 'Check Paystack status'}</Button>}
             {canCashOut(payout) && wallet.sellerEarnings.payoutAccountVerified && <Button disabled={!emailConfirmed || cashoutBusyId === payout.id} onClick={() => void cashOut(payout)} icon={cashoutBusyId === payout.id ? <LoaderCircle size={14} className="animate-spin" /> : <ArrowUpRight size={14} />} className="min-h-9 px-3 text-xs">{cashoutBusyId === payout.id ? 'Requesting…' : 'Cash out'}</Button>}
           </li>)}
         </ul>}

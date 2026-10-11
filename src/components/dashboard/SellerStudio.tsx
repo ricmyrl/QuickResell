@@ -11,7 +11,7 @@ import { useCurrency } from '../../lib/CurrencyContext'
 import { getCurrentLocation } from '../../lib/geolocation'
 import { getSellerVerification } from '../../services/api'
 import { updateListingLocation } from '../../services/listingApi'
-import { CartApiError, cashOutSellerOrderItem, getSellerOrders, updateOrderFulfillment } from '../../services/cartApi'
+import { CartApiError, cashOutSellerOrderItem, getSellerOrders, reconcileSellerPayoutStatus, updateOrderFulfillment } from '../../services/cartApi'
 import { SellerVerificationPage } from './SellerVerificationPage'
 import { verifyPasskeyForAction } from '../../services/passkeyVerification'
 
@@ -67,6 +67,7 @@ function SellerStudio({ auctions, userId, trustScore, completedAuctions, session
   const [ordersReloadKey, setOrdersReloadKey] = useState(0)
   const [fulfillmentBusyId, setFulfillmentBusyId] = useState<string | null>(null)
   const [cashoutBusyId, setCashoutBusyId] = useState<string | null>(null)
+  const [reconcileBusyId, setReconcileBusyId] = useState<string | null>(null)
   const [sellerVerificationComplete, setSellerVerificationComplete] = useState(false)
 
   useEffect(() => {
@@ -198,6 +199,37 @@ function SellerStudio({ auctions, userId, trustScore, completedAuctions, session
     }
   }
 
+  const reconcilePayout = async (item: SellerOrderItem) => {
+    if (!session) return
+    setReconcileBusyId(item.id)
+    setOrdersError('')
+    setOrdersErrorRequestId('')
+    try {
+      const payout = await reconcileSellerPayoutStatus(item.id, session)
+      setOrderItems((current) => current.map((orderItem) =>
+        orderItem.id === item.id ? { ...orderItem, sellerPayout: payout } : orderItem,
+      ))
+      onNotice(
+        payout.status === 'SUCCESS'
+          ? 'Paystack confirms this transfer succeeded. Check your bank account.'
+          : payout.status === 'FAILED'
+            ? 'Paystack confirms this transfer failed. The amount has been returned to your wallet.'
+            : payout.status === 'REVERSED'
+              ? 'Paystack confirms this transfer was reversed. The amount has been returned to your wallet.'
+              : payout.status === 'REVIEW_REQUIRED'
+                ? 'Paystack still requires action on this transfer. Contact support; do not cash out again.'
+                : 'Paystack reports that this transfer is still processing. Check again later.',
+      )
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : 'Paystack could not confirm the transfer status.'
+      setOrdersError(message)
+      setOrdersErrorRequestId(caught instanceof CartApiError ? caught.requestId ?? '' : '')
+      onNotice(message, 'error')
+    } finally {
+      setReconcileBusyId(null)
+    }
+  }
+
   if (location.pathname === '/seller/products/new') {
     return <CreateListingPage onClose={() => navigate('/seller')} session={session} onCreated={onListingCreated} onAuctionCreated={onAuctionCreated} />
   }
@@ -290,6 +322,7 @@ function SellerStudio({ auctions, userId, trustScore, completedAuctions, session
         <span className="text-right"><span className="block text-sm font-semibold text-[#405549]">{currency.format((item.unitPriceCents * item.quantity - (item.sellerFeeCents ?? 0)) / 100)}</span>{(item.sellerFeeCents ?? 0) > 0 && <span className="mt-1 block text-[10px] text-[#98a19b]">after {currency.format((item.sellerFeeCents ?? 0) / 100)} fee</span>}</span>
         {item.paymentStatus === 'PAID' && item.fulfillmentStatus === 'PENDING_HANDOFF' && <div className="flex w-full gap-2 sm:w-auto"><Button disabled={!emailConfirmed || fulfillmentBusyId === item.id} onClick={() => void setFulfillment(item, 'PICKUP')} icon={<MapPin size={14} />} className="min-h-9 px-3 text-xs">Pickup ready</Button><Button disabled={!emailConfirmed || fulfillmentBusyId === item.id} onClick={() => void setFulfillment(item, 'SHIPPING')} icon={<Truck size={14} />} className="min-h-9 px-3 text-xs">Mark shipped</Button></div>}
         {item.sellerPayout && (item.sellerPayout.status === 'PENDING' || item.sellerPayout.status === 'BLOCKED') && ['READY_FOR_PICKUP', 'SHIPPED', 'COMPLETED'].includes(item.fulfillmentStatus) && <Button disabled={!emailConfirmed || cashoutBusyId === item.id} onClick={() => void cashOut(item)} icon={<CircleDollarSign size={14} />} className="min-h-9 px-3 text-xs">{cashoutBusyId === item.id ? 'Requesting…' : 'Cash out'}</Button>}
+        {item.sellerPayout && (item.sellerPayout.status === 'REVIEW_REQUIRED' || item.sellerPayout.status === 'PROCESSING') && <Button variant="secondary" disabled={!emailConfirmed || reconcileBusyId === item.id} onClick={() => void reconcilePayout(item)} icon={<RefreshCw size={14} className={reconcileBusyId === item.id ? 'animate-spin' : ''} />} className="min-h-9 px-3 text-xs">{reconcileBusyId === item.id ? 'Checking…' : 'Check Paystack status'}</Button>}
       </article>)}</div>}
       {!emailConfirmed && session && <p className="border-t border-[#edf1ed] px-4 py-3 text-xs text-[#89958e]">Confirm your email before updating order fulfillment.</p>}
     </section>}
