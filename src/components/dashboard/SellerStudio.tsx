@@ -108,6 +108,9 @@ function SellerStudio({ auctions, userId, trustScore, completedAuctions, session
   const closed = auctions.filter((auction) => ['SOLD', 'REJECTED', 'CLOSED'].includes(auction.status) && (!userId || auction.sellerId === userId))
   const unitsAvailable = ownListings.reduce((total, listing) => total + listing.quantityAvailable, 0)
   const lowStock = ownListings.filter((listing) => listing.quantityAvailable > 0 && listing.quantityAvailable <= 2)
+  const paidOrdersToFulfill = orderItems.filter((item) =>
+    item.paymentStatus === 'PAID' && item.fulfillmentStatus === 'PENDING_HANDOFF',
+  )
   const liveBidTotal = active.reduce((total, auction) => total + auction.currentHighestBid, 0)
   const sellerName = session?.user.user_metadata.full_name?.split(' ')[0] || session?.user.email?.split('@')[0] || 'Seller'
 
@@ -225,13 +228,24 @@ function SellerStudio({ auctions, userId, trustScore, completedAuctions, session
 
     <div className="mb-5 flex items-center justify-between gap-3 border-b border-[#e0e7e1]">
       <div className="flex min-w-0 gap-1 overflow-x-auto scrollbar-hidden" role="tablist" aria-label="Seller studio sections">
-        {sections.map(({ id, label, icon: Icon }) => <button key={id} type="button" role="tab" aria-selected={section === id} onClick={() => setSection(id)} className={`inline-flex shrink-0 items-center gap-2 border-b-2 px-3 py-3 text-sm font-semibold transition-colors ${section === id ? 'border-[#315f49] text-[#315f49]' : 'border-transparent text-[#839087] hover:text-[#425c4d]'}`}><Icon size={15} />{label}{id === 'auctions' && pending.length > 0 && <span className="grid size-[18px] place-items-center rounded-full bg-[#d9523e] text-[10px] font-bold text-white">{pending.length}</span>}{id === 'orders' && orderItems.some((item) => item.fulfillmentStatus === 'PENDING_HANDOFF') && <span className="grid size-[18px] place-items-center rounded-full bg-[#d9523e] text-[10px] font-bold text-white">{orderItems.filter((item) => item.fulfillmentStatus === 'PENDING_HANDOFF').length}</span>}</button>)}
+        {sections.map(({ id, label, icon: Icon }) => <button key={id} type="button" role="tab" aria-selected={section === id} onClick={() => setSection(id)} className={`inline-flex shrink-0 items-center gap-2 border-b-2 px-3 py-3 text-sm font-semibold transition-colors ${section === id ? 'border-[#315f49] text-[#315f49]' : 'border-transparent text-[#839087] hover:text-[#425c4d]'}`}><Icon size={15} />{label}{id === 'auctions' && pending.length > 0 && <span className="grid size-[18px] place-items-center rounded-full bg-[#d9523e] text-[10px] font-bold text-white">{pending.length}</span>}{id === 'orders' && paidOrdersToFulfill.length > 0 && <span className="grid size-[18px] place-items-center rounded-full bg-[#d9523e] text-[10px] font-bold text-white">{paidOrdersToFulfill.length}</span>}</button>)}
       </div>
       {section === 'inventory' && <span className="hidden shrink-0 text-xs text-[#8b9690] sm:block">{ownListings.length} total</span>}
     </div>
 
     {section === 'overview' && <div className="grid gap-5 xl:grid-cols-[minmax(0,1.45fr)_minmax(280px,.8fr)]">
       <div className="space-y-5">
+        <section className="overflow-hidden rounded-[14px] border border-[#d9e7d9] bg-[#f7fbf6]">
+          <div className="flex flex-wrap items-center gap-3 px-4 py-4 sm:px-5">
+            <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-[#e7f1e5] text-[#4e7558]"><PackageCheck size={18} /></span>
+            <div className="min-w-0 flex-1">
+              <h2 className="text-sm font-semibold text-[#30483a]">Paid orders to fulfill</h2>
+              <p className="mt-1 text-xs leading-5 text-[#7e8b81]">{ordersLoading ? 'Checking your sales…' : paidOrdersToFulfill.length > 0 ? `${paidOrdersToFulfill.length} paid ${paidOrdersToFulfill.length === 1 ? 'item needs' : 'items need'} a pickup-ready or shipped update.` : 'Mark paid orders ready for pickup or shipped from Sales.'}</p>
+            </div>
+            <Button variant="secondary" disabled={ordersLoading} onClick={() => setSection('orders')} icon={<ArrowRight size={14} />} className="min-h-9 px-3 text-xs">{paidOrdersToFulfill.length > 0 ? 'Fulfill orders' : 'Open sales'}</Button>
+          </div>
+          {!emailConfirmed && paidOrdersToFulfill.length > 0 && <p className="border-t border-[#e5eee3] px-4 py-2.5 text-xs text-[#8a6a32] sm:px-5">Confirm your email before updating fulfillment.</p>}
+        </section>
         <section className="overflow-hidden rounded-[14px] border border-[#e2e9e3] bg-white">
           <div className="flex items-center justify-between border-b border-[#edf1ed] px-4 py-4 sm:px-5"><div><div className="flex items-center gap-2"><h2 className="font-display text-base font-semibold text-[#263c31]">Needs your attention</h2>{pending.length > 0 && <span className="rounded-full bg-[#fff0dc] px-2 py-0.5 text-[10px] font-bold text-[#9a6631]">{pending.length} pending</span>}</div><p className="mt-1 text-xs text-[#849087]">Keep sales moving with a quick check-in.</p></div><button type="button" onClick={() => setSection('auctions')} className="inline-flex items-center gap-1 text-xs font-semibold text-[#456b54] hover:text-[#263c31]">View queue <ArrowRight size={14} /></button></div>
           {pending.length > 0 || lowStock.length > 0 ? <div className="divide-y divide-[#f0f3f0]">
@@ -268,7 +282,7 @@ function SellerStudio({ auctions, userId, trustScore, completedAuctions, session
     </div>}
 
     {section === 'orders' && <section className="overflow-hidden rounded-[14px] border border-[#e2e9e3] bg-white">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#edf1ed] px-4 py-4 sm:px-5"><div><h2 className="font-display text-base font-semibold text-[#263c31]">Paid sales</h2><p className="mt-1 text-xs text-[#849087]">Choose pickup or shipping for each paid item. Buyers can track the update and confirm receipt.</p></div><Button variant="secondary" disabled={ordersLoading} onClick={() => { setOrdersLoading(true); setOrdersError(''); setOrdersErrorRequestId(''); setOrdersReloadKey((value) => value + 1) }} icon={<RefreshCw size={14} />} className="min-h-8 px-3 text-xs">Refresh status</Button></div>
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#edf1ed] px-4 py-4 sm:px-5"><div><h2 className="font-display text-base font-semibold text-[#263c31]">Paid sales</h2><p className="mt-1 text-xs text-[#849087]">For each paid item, use <strong>Pickup ready</strong> for collection or <strong>Mark shipped</strong> for delivery. Buyers can track the update and confirm receipt.</p></div><Button variant="secondary" disabled={ordersLoading} onClick={() => { setOrdersLoading(true); setOrdersError(''); setOrdersErrorRequestId(''); setOrdersReloadKey((value) => value + 1) }} icon={<RefreshCw size={14} />} className="min-h-8 px-3 text-xs">Refresh status</Button></div>
       {ordersError && <div role="alert" className="flex flex-wrap items-center justify-between gap-3 border-b border-[#f0d7d2] bg-[#fff5f2] px-4 py-3 text-sm text-[#a34237]"><div><p>{ordersError}</p>{ordersErrorRequestId && <p className="mt-1 text-xs">Support reference: {ordersErrorRequestId}</p>}</div><Button variant="secondary" onClick={() => { setOrdersLoading(true); setOrdersError(''); setOrdersErrorRequestId(''); setOrdersReloadKey((value) => value + 1) }} className="min-h-8 px-3 text-xs">Try again</Button></div>}
       {ordersLoading ? <p className="px-4 py-8 text-center text-sm text-[#849087]">Loading sales…</p> : orderItems.length === 0 ? <p className="px-4 py-8 text-center text-sm text-[#849087]">Paid orders will appear here after a buyer checks out.</p> : <div className="divide-y divide-[#eef2ee]">{orderItems.map((item) => <article key={item.id} className="flex flex-wrap items-center gap-3 px-4 py-4 sm:px-5">
         <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-[#edf4ed] text-[#587b62]">{item.fulfillmentStatus === 'SHIPPED' ? <Truck size={18} /> : <PackageCheck size={18} />}</span>
