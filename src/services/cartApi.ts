@@ -164,6 +164,7 @@ export async function verifyPayment(reference: string, session?: Session | null)
 
 export type WalletData = {
   balanceCents: number
+  withdrawals: SellerWalletWithdrawal[]
   transactions: Array<{
     id: string
     amountCents: number
@@ -184,15 +185,32 @@ export type WalletData = {
   }
 }
 
+export type SellerWalletWithdrawal = {
+  id: string
+  amountKobo: number
+  status: 'PROCESSING' | 'SUCCESS' | 'FAILED' | 'REVERSED' | 'REVIEW_REQUIRED'
+  createdAt: string
+  updatedAt: string
+}
+
 export async function getWallet(session?: Session | null): Promise<WalletData> {
   return request<WalletData>('/wallet', {}, session)
 }
 
-export async function withdrawSellerEarnings(amountKobo: number, session: Session): Promise<{ status: string; amountKobo: number }> {
-  const result = await request<{ withdrawal: { status: string; amountKobo: number } }>('/wallet/withdrawals', {
+export async function withdrawSellerEarnings(amountKobo: number, session: Session): Promise<SellerWalletWithdrawal> {
+  const result = await request<{ withdrawal: SellerWalletWithdrawal }>('/wallet/withdrawals', {
     method: 'POST',
     body: JSON.stringify({ amountKobo }),
   }, session)
+  return result.withdrawal
+}
+
+export async function reconcileSellerWithdrawal(id: string, session: Session): Promise<SellerWalletWithdrawal> {
+  const result = await request<{ withdrawal: SellerWalletWithdrawal }>(
+    `/wallet/withdrawals/${encodeURIComponent(id)}/reconcile`,
+    { method: 'POST' },
+    session,
+  )
   return result.withdrawal
 }
 

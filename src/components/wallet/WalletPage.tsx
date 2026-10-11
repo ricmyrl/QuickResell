@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { ArrowDownToLine, ArrowUpRight, BadgeCheck, CircleDollarSign, Clock3, LoaderCircle, LockKeyhole, RefreshCw, WalletCards } from 'lucide-react'
 import { Button } from '../common/Button'
-import { cashOutSellerOrderItem, getWallet, reconcileSellerPayoutStatus, type WalletData, withdrawSellerEarnings } from '../../services/cartApi'
+import { CartApiError, cashOutSellerOrderItem, getWallet, reconcileSellerPayoutStatus, reconcileSellerWithdrawal, type SellerWalletWithdrawal, type WalletData, withdrawSellerEarnings } from '../../services/cartApi'
 import type { SellerWalletPayout } from '../../types'
 import { verifyPasskeyForAction } from '../../services/passkeyVerification'
 
@@ -17,6 +17,7 @@ const transactionTitles = {
 } as const
 const emptyWallet: WalletData = {
   balanceCents: 0,
+  withdrawals: [],
   transactions: [],
   sellerEarnings: {
     earnedCents: 0,
@@ -67,6 +68,7 @@ export function WalletPage({ session, emailConfirmed, onRequestSignIn, onAddFund
   const [withdrawBusy, setWithdrawBusy] = useState(false)
   const [cashoutBusyId, setCashoutBusyId] = useState<string | null>(null)
   const [reconcileBusyId, setReconcileBusyId] = useState<string | null>(null)
+  const [reconcileWithdrawalBusyId, setReconcileWithdrawalBusyId] = useState<string | null>(null)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const availableToWithdrawCents = Math.min(wallet.sellerEarnings.readyForCashoutCents, wallet.balanceCents)
@@ -124,9 +126,39 @@ export function WalletPage({ session, emailConfirmed, onRequestSignIn, onAddFund
                 : 'Paystack reports that this transfer is still processing. Check again later.',
       )
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Paystack could not confirm the transfer status.')
+      const message = caught instanceof Error ? caught.message : 'Paystack could not confirm the transfer status.'
+      const requestId = caught instanceof CartApiError ? caught.requestId : undefined
+      setError(requestId ? `${message} Support reference: ${requestId}` : message)
     } finally {
       setReconcileBusyId(null)
+    }
+  }
+
+  const reconcileWithdrawal = async (withdrawal: SellerWalletWithdrawal) => {
+    if (!session) return
+    setReconcileWithdrawalBusyId(withdrawal.id)
+    setError('')
+    setNotice('')
+    try {
+      const result = await reconcileSellerWithdrawal(withdrawal.id, session)
+      await refreshWallet()
+      setNotice(
+        result.status === 'SUCCESS'
+          ? 'Paystack confirms this withdrawal succeeded. Check your bank account.'
+          : result.status === 'FAILED'
+            ? 'Paystack confirms this withdrawal failed. The amount has been returned to your wallet.'
+            : result.status === 'REVERSED'
+              ? 'Paystack confirms this withdrawal was reversed. The amount has been returned to your wallet.'
+              : result.status === 'REVIEW_REQUIRED'
+                ? 'Paystack still requires action on this withdrawal. Contact support; do not withdraw again.'
+                : 'Paystack reports that this withdrawal is still processing. Check again later.',
+      )
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : 'Paystack could not confirm the withdrawal status.'
+      const requestId = caught instanceof CartApiError ? caught.requestId : undefined
+      setError(requestId ? `${message} Support reference: ${requestId}` : message)
+    } finally {
+      setReconcileWithdrawalBusyId(null)
     }
   }
 
@@ -344,6 +376,19 @@ export function WalletPage({ session, emailConfirmed, onRequestSignIn, onAddFund
             ? <p className="mt-2 text-xs text-[#765b22]">{wallet.sellerEarnings.readyForCashoutCents <= 0 ? 'No fulfilled seller earnings are currently available. Mark a paid order as ready for pickup or shipped first.' : 'Your wallet balance is too low. Funds already spent from your wallet cannot be withdrawn again.'}</p>
             : !wallet.sellerEarnings.payoutAccountVerified && <p className="mt-2 text-xs text-[#765b22]">Verify your payout account to enable withdrawals.</p>}
       </form>
+      {wallet.withdrawals.length > 0 && <ul aria-label="Recent bank withdrawals" className="divide-y divide-[#edf1ed] border-t border-[#edf1ed]">
+        {wallet.withdrawals.map((withdrawal) => <li key={withdrawal.id} className="flex flex-wrap items-center gap-3 px-5 py-4 sm:px-6">
+          <span className={`grid size-9 shrink-0 place-items-center rounded-xl ${withdrawal.status === 'SUCCESS' ? 'bg-[#eef6ee] text-[#4f805a]' : 'bg-[#f1f4ef] text-[#718078]'}`}>
+            {withdrawal.status === 'SUCCESS' ? <BadgeCheck size={17} /> : <CircleDollarSign size={17} />}
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-sm font-semibold text-[#35483b]">Bank withdrawal</span>
+            <span className="mt-1 block text-xs text-[#89958e]">{dateFormatter.format(new Date(withdrawal.createdAt))} · {withdrawal.status.replaceAll('_', ' ').toLowerCase()}</span>
+          </span>
+          <span className="text-sm font-semibold text-[#405549]">{ngnFormatter.format(withdrawal.amountKobo / 100)}</span>
+          {(withdrawal.status === 'REVIEW_REQUIRED' || withdrawal.status === 'PROCESSING') && <Button variant="secondary" disabled={!emailConfirmed || reconcileWithdrawalBusyId === withdrawal.id} onClick={() => void reconcileWithdrawal(withdrawal)} icon={<RefreshCw size={14} className={reconcileWithdrawalBusyId === withdrawal.id ? 'animate-spin' : ''} />} className="min-h-9 px-3 text-xs">{reconcileWithdrawalBusyId === withdrawal.id ? 'Checking…' : 'Check Paystack status'}</Button>}
+        </li>)}
+      </ul>}
       {wallet.sellerEarnings.payouts.length === 0
         ? <div className="border-t border-[#edf1ed] px-5 py-8 text-center text-sm text-[#87938b]">Paid sales with tracked earnings will appear here.</div>
         : <ul className="divide-y divide-[#edf1ed] border-t border-[#edf1ed]">
