@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { Bell, BellDot, Bookmark, Compass, GraduationCap, ImagePlus, LayoutDashboard, Menu, PackageCheck, Search, ShieldCheck, ShoppingCart, Sparkles, Store, WalletCards, X } from 'lucide-react'
 import type { Session } from '@supabase/supabase-js'
 import { Button, IconButton } from './components/common/Button'
+import { BrandLoader } from './components/common/BrandLoader'
 import { formatNotificationMessage } from './components/common/notificationMessage'
 import { TrustScoreBadge } from './components/common/TrustScoreBadge'
 import { useCurrency } from './lib/CurrencyContext'
@@ -842,7 +843,7 @@ export default function MarketplaceApp() {
     <button type="button" onClick={() => { setView('dashboard'); setSelectedId(null) }} className={`mt-1 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition-colors ${view === 'dashboard' ? 'bg-[#edf4ed] text-[#2d5d4c]' : 'text-[#78867e] hover:bg-[#f1f4f1] hover:text-[#263b33]'}`}><LayoutDashboard size={17} />Seller studio{sellerRows.some((item) => item.status === 'PENDING_APPROVAL') && <span className="ml-auto size-2 rounded-full bg-[#df704a]" />}</button>
   </>
 
-  return <Suspense fallback={<div className="grid min-h-screen place-items-center bg-[#f5f7f5] text-sm text-[#849189]">Loading QuickResell…</div>}>
+  return <Suspense fallback={<BrandLoader label="Loading marketplace…" />}>
     {authMode ? <AuthPage initialMode={authMode} returnTo={returnPath(location.state)} onBack={backFromAuth} onAuthenticated={() => { setAuthMode(null); showToast('You’re signed in. Welcome to Quick Resell.') }} /> : <div className="min-h-screen bg-[#f5f7f5] text-[#192724]">
     <header className="sticky top-0 z-30 flex h-[68px] items-center gap-3 border-b border-[#e6ebe7] bg-white/95 px-3 backdrop-blur-md sm:gap-4 sm:px-6 lg:px-8">
       <button type="button" aria-label={mobileMenuOpen ? 'Close marketplace menu' : 'Open marketplace menu'} aria-expanded={mobileMenuOpen} onClick={() => setMobileMenuOpen((open) => !open)} className="grid size-10 shrink-0 place-items-center rounded-lg border border-[#e7ece8] text-[#52685d] transition hover:bg-[#f3f6f3] md:hidden">{mobileMenuOpen ? <X size={24} /> : <Menu size={24} />}</button>
@@ -882,7 +883,7 @@ export default function MarketplaceApp() {
       </nav>
     </div>}
     {notificationsOpen && <Suspense fallback={null}><NotificationsPanel open notifications={notifications} onClose={() => setNotificationsOpen(false)} onMarkAllRead={() => void handleMarkAllNotificationsRead()} onRead={(notification) => void handleNotificationClick(notification)} onDelete={(notification) => void handleNotificationDelete(notification)} /></Suspense>}
-    {isPaymentCallback && <Suspense fallback={<div className="fixed inset-0 z-[100] grid place-items-center bg-[#14221c]/65 text-sm text-white">Verifying Paystack payment…</div>}><PaystackReturnPage reference={paymentReference} transactionType={paymentTransactionType} session={session} authLoading={authLoading} emailConfirmed={emailConfirmed} onRequestSignIn={() => setAuthMode('signin', `${location.pathname}${location.search}`)} onCompleteCheckout={completePaymentCheckout} onComplete={completePaystackReturn} /></Suspense>}
+    {isPaymentCallback && <Suspense fallback={<BrandLoader label="Verifying Paystack payment…" overlay />}><PaystackReturnPage reference={paymentReference} transactionType={paymentTransactionType} session={session} authLoading={authLoading} emailConfirmed={emailConfirmed} onRequestSignIn={() => setAuthMode('signin', `${location.pathname}${location.search}`)} onCompleteCheckout={completePaymentCheckout} onComplete={completePaystackReturn} /></Suspense>}
 
     <div className="border-b border-[#e4eae5] bg-white"><div className="mx-auto flex max-w-[1640px] flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-6 lg:px-8"><div><p className="text-sm font-semibold text-[#2b4036]">Have something to sell?</p><p className="mt-0.5 text-xs text-[#7a8781]">Add product photos and list it for local buyers.</p></div><Button variant="secondary" onClick={openSellerStudio} icon={<ImagePlus size={16} />}>Sell an item</Button></div></div>
 
