@@ -5,7 +5,6 @@ import type { Session } from '@supabase/supabase-js'
 import { Activity, ArrowDownRight, ArrowRight, BadgeCheck, Boxes, Check, ChevronRight, CircleDollarSign, Clock3, ImagePlus, LayoutGrid, ListFilter, MapPin, Package, PackageCheck, RefreshCw, Search, ShieldCheck, ShieldHalf, ShieldAlert, Sparkles, Store, Truck } from 'lucide-react'
 import type { Auction, FulfillmentMethod, MarketplaceListing, SellerOrderItem, Verdict } from '../../types'
 import { Button } from '../common/Button'
-import { OrdersModeTabs } from '../cart/OrdersModeTabs'
 import { CreateListingPage } from './CreateListingModal'
 import { SellerVerdictModal } from './SellerVerdictModal'
 import { useCurrency } from '../../lib/CurrencyContext'
@@ -57,7 +56,7 @@ function SellerStudio({ auctions, userId, trustScore, completedAuctions, session
   const currency = { format: formatUsd }
   const location = useLocation()
   const navigate = useNavigate()
-  const [section, setSection] = useState<StudioSection>(() => new URLSearchParams(location.search).get('section') === 'orders' ? 'orders' : 'overview')
+  const [section, setSection] = useState<StudioSection>('overview')
   const [query, setQuery] = useState('')
   const [selectedAuction, setSelectedAuction] = useState<Auction | null>(null)
   const [locationSavingId, setLocationSavingId] = useState<string | null>(null)
@@ -316,7 +315,6 @@ function SellerStudio({ auctions, userId, trustScore, completedAuctions, session
 
     {section === 'orders' && <section className="overflow-hidden rounded-[14px] border border-[#e2e9e3] bg-white">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#edf1ed] px-4 py-4 sm:px-5"><div><h2 className="font-display text-base font-semibold text-[#263c31]">Paid sales</h2><p className="mt-1 text-xs text-[#849087]">For each paid item, use <strong>Pickup ready</strong> for collection or <strong>Mark shipped</strong> for delivery. Buyers can track the update and confirm receipt.</p></div><Button variant="secondary" disabled={ordersLoading} onClick={() => { setOrdersLoading(true); setOrdersError(''); setOrdersErrorRequestId(''); setOrdersReloadKey((value) => value + 1) }} icon={<RefreshCw size={14} />} className="min-h-8 px-3 text-xs">Refresh status</Button></div>
-      <div className="flex justify-end border-b border-[#edf1ed] px-4 py-2.5 sm:px-5"><OrdersModeTabs mode="seller" onChange={(mode) => { if (mode === 'buyer') navigate('/orders') }} /></div>
       {ordersError && <div role="alert" className="flex flex-wrap items-center justify-between gap-3 border-b border-[#f0d7d2] bg-[#fff5f2] px-4 py-3 text-sm text-[#a34237]"><div><p>{ordersError}</p>{ordersErrorRequestId && <p className="mt-1 text-xs">Support reference: {ordersErrorRequestId}</p>}</div><Button variant="secondary" onClick={() => { setOrdersLoading(true); setOrdersError(''); setOrdersErrorRequestId(''); setOrdersReloadKey((value) => value + 1) }} className="min-h-8 px-3 text-xs">Try again</Button></div>}
       {ordersLoading ? <p className="px-4 py-8 text-center text-sm text-[#849087]">Loading sales…</p> : orderItems.length === 0 ? <p className="px-4 py-8 text-center text-sm text-[#849087]">Paid orders will appear here after a buyer checks out.</p> : <div className="divide-y divide-[#eef2ee]">{orderItems.map((item) => <article key={item.id} className="flex flex-wrap items-center gap-3 px-4 py-4 sm:px-5">
         <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-[#edf4ed] text-[#587b62]">{item.fulfillmentStatus === 'SHIPPED' ? <Truck size={18} /> : <PackageCheck size={18} />}</span>
