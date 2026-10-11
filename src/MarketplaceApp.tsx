@@ -123,6 +123,9 @@ export default function MarketplaceApp() {
   const nextViewNavigation = useRef<View | null>(null)
   const [session, setSession] = useState<Session | null>(null)
   const [toast, setToast] = useState<ToastMessage | null>(null)
+  const [loadingLabel, setLoadingLabel] = useState<string | null>(null)
+  const activeLoadingTasks = useRef(0)
+  const loadingHideTimer = useRef<number | null>(null)
   const recentErrorToast = useRef<{ message: string; timestamp: number } | null>(null)
   const [search, setSearch] = useState('')
   const [searchOpen, setSearchOpen] = useState(false)
@@ -147,20 +150,40 @@ export default function MarketplaceApp() {
   const activeWatchlistCount = auctionWatchlistRules.filter((rule) => rule.auction.status === 'ACTIVE').length
   const unreadWatchlistBidCount = watchlistBidNotifications.length
 
+  const runWithLoader = async <T,>(label: string, action: () => T | Promise<T>): Promise<T> => {
+    if (loadingHideTimer.current !== null) {
+      window.clearTimeout(loadingHideTimer.current)
+      loadingHideTimer.current = null
+    }
+    activeLoadingTasks.current += 1
+    setLoadingLabel(label)
+    try {
+      return await action()
+    } finally {
+      activeLoadingTasks.current -= 1
+      if (activeLoadingTasks.current === 0) {
+        loadingHideTimer.current = window.setTimeout(() => {
+          if (activeLoadingTasks.current === 0) setLoadingLabel(null)
+          loadingHideTimer.current = null
+        }, 250)
+      }
+    }
+  }
+
   const setAuthMode = (mode: AuthMode | null, nextPath?: string) => {
     if (mode) {
-      navigate(mode === 'signin' ? '/auth/sign-in' : '/auth/register', {
+      void runWithLoader('Opening sign in…', () => navigate(mode === 'signin' ? '/auth/sign-in' : '/auth/register', {
         state: { returnTo: nextPath ?? location.pathname },
-      })
+      }))
       return
     }
-    navigate(returnPath(location.state), { replace: true })
+    void runWithLoader('Returning to marketplace…', () => navigate(returnPath(location.state), { replace: true }))
   }
 
   const backFromAuth = () => {
     const destination = returnPath(location.state)
     const isProtectedDestination = destination === '/cart' || destination === '/seller' || destination.startsWith('/seller/')
-    navigate(isProtectedDestination ? '/' : destination, { replace: true })
+    void runWithLoader('Returning to marketplace…', () => navigate(isProtectedDestination ? '/' : destination, { replace: true }))
   }
 
   const setViewState = (nextView: View) => {
@@ -170,7 +193,16 @@ export default function MarketplaceApp() {
     }
     pendingAuctionNavigation.current = false
     nextViewNavigation.current = nextView
-    navigate(viewPaths[nextView])
+    const labels: Record<View, string> = {
+      feed: 'Loading auctions…',
+      shop: 'Loading shop…',
+      cart: 'Loading cart…',
+      dashboard: 'Loading seller studio…',
+      watchlist: 'Loading watchlist…',
+      orders: 'Loading orders…',
+      wallet: 'Loading wallet…',
+    }
+    void runWithLoader(labels[nextView], () => navigate(viewPaths[nextView]))
   }
   const setSelectedId = (id: string | null) => {
     if (!id) {
@@ -178,13 +210,13 @@ export default function MarketplaceApp() {
       if (location.pathname.startsWith('/auctions/')) {
         const nextView = nextViewNavigation.current
         nextViewNavigation.current = null
-        navigate(nextView ? viewPaths[nextView] : returnPath(location.state), { replace: true })
+        void runWithLoader('Returning to marketplace…', () => navigate(nextView ? viewPaths[nextView] : returnPath(location.state), { replace: true }))
       }
       return
     }
     pendingAuctionNavigation.current = true
     const returnTo = location.pathname.startsWith('/auctions/') ? returnPath(location.state) : location.pathname
-    navigate(`/auctions/${encodeURIComponent(id)}`, { state: { returnTo } })
+    void runWithLoader('Loading auction…', () => navigate(`/auctions/${encodeURIComponent(id)}`, { state: { returnTo } }))
   }
 
   const setView = (nextView: View) => {
@@ -391,6 +423,10 @@ export default function MarketplaceApp() {
     return () => window.clearTimeout(timeout)
   }, [toast])
 
+  useEffect(() => () => {
+    if (loadingHideTimer.current !== null) window.clearTimeout(loadingHideTimer.current)
+  }, [])
+
   useEffect(() => {
     const reportGlobalError = (message: string) => {
       const now = Date.now()
@@ -484,7 +520,7 @@ export default function MarketplaceApp() {
     },
   })
 
-  const handleBid = async (room: Auction, amount: number) => {
+  const handleBid = (room: Auction, amount: number) => runWithLoader('Placing bid…', async () => {
     if (!session) {
       setAuthMode('signin')
       throw new Error('Sign in before placing a bid.')
@@ -493,14 +529,14 @@ export default function MarketplaceApp() {
     const result = await verifyPasskeyForAction(session, () => placeBid(room.id, amount, session))
     updateRoom(room.id, result.auction)
     await userCart.refresh()
-  }
+  })
 
   const handleExpire = async (room: Auction) => {
     if (!session || !emailConfirmed) return
     updateRoom(room.id, await closeAuction(room.id, session))
   }
 
-  const handleVerdict = async (room: Auction, decision: Verdict) => {
+  const handleVerdict = (room: Auction, decision: Verdict) => runWithLoader('Updating auction…', async () => {
     if (!session) {
       setAuthMode('signin')
       throw new Error('Sign in before managing auctions.')
@@ -511,9 +547,9 @@ export default function MarketplaceApp() {
     setTrustScore(result.trustScore)
     if (decision === 'ACCEPT') setCompletedAuctions((count) => count === null ? count : count + 1)
     setSellerAuctions((items) => items.map((item) => item.id === room.id ? result.auction : item))
-  }
+  })
 
-  const handleToggleSaved = async (postId: string) => {
+  const handleToggleSaved = (postId: string) => runWithLoader('Updating saved items…', async () => {
     if (!session) {
       setAuthMode('signin')
       showToast('Sign in before saving items.', 'error')
@@ -527,9 +563,9 @@ export default function MarketplaceApp() {
     } catch (caught) {
       showToast(caught instanceof Error ? caught.message : 'This item could not be saved.', 'error')
     }
-  }
+  })
 
-  const handleAddToCart = async (listing: MarketplaceListing) => {
+  const handleAddToCart = (listing: MarketplaceListing) => runWithLoader('Adding to cart…', async () => {
     if (!session) {
       setAuthMode('signin')
       showToast('Sign in before using the cart.', 'error')
@@ -545,7 +581,7 @@ export default function MarketplaceApp() {
     } catch (caught) {
       showToast(caught instanceof Error ? caught.message : 'This listing could not be added.', 'error')
     }
-  }
+  })
 
   const openPaystackCheckout = (authorizationUrl: string) => {
     const url = new URL(authorizationUrl)
@@ -555,7 +591,7 @@ export default function MarketplaceApp() {
     window.location.assign(url.toString())
   }
 
-  const handlePlaceOrder = async (paymentMethod: 'PAYSTACK' | 'WALLET'): Promise<PurchaseOrder | null> => {
+  const handlePlaceOrder = (paymentMethod: 'PAYSTACK' | 'WALLET'): Promise<PurchaseOrder | null> => runWithLoader('Processing checkout…', async () => {
     if (!session) {
       setAuthMode('signin')
       throw new Error('Sign in before checking out.')
@@ -579,7 +615,7 @@ export default function MarketplaceApp() {
     const payment = await verifyPasskeyForAction(session, () => initializePayment(session))
     openPaystackCheckout(payment.authorization_url)
     return await new Promise<null>(() => undefined)
-  }
+  })
 
   const completePaymentCheckout = async (reference: string) => {
     const order = await userCart.checkout(reference)
@@ -594,14 +630,14 @@ export default function MarketplaceApp() {
   const completePaystackReturn = (transactionType: 'CART_CHECKOUT' | 'WALLET_TOPUP') => {
     if (transactionType === 'CART_CHECKOUT') {
       showToast('Payment confirmed. Your order has been placed.')
-      navigate('/orders', { replace: true })
+      void runWithLoader('Opening your orders…', () => navigate('/orders', { replace: true }))
     } else {
       showToast('Wallet deposit completed successfully.')
-      navigate('/wallet', { replace: true })
+      void runWithLoader('Opening your wallet…', () => navigate('/wallet', { replace: true }))
     }
   }
 
-  const handleAddWalletFunds = async (amountKobo: number) => {
+  const handleAddWalletFunds = (amountKobo: number) => runWithLoader('Preparing wallet deposit…', async () => {
     if (!session) {
       setAuthMode('signin', viewPaths.wallet)
       throw new Error('Sign in before adding money to your wallet.')
@@ -611,7 +647,7 @@ export default function MarketplaceApp() {
     const payment = await initializeWalletTopUp(amountKobo, session)
     openPaystackCheckout(payment.authorization_url)
     return await new Promise<void>(() => undefined)
-  }
+  })
 
   const handleListingCreated = (listing: MarketplaceListing) => {
     setOwnListings((current) => [listing, ...current.filter((item) => item.id !== listing.id)])
@@ -630,7 +666,7 @@ export default function MarketplaceApp() {
     storeFeed.updateListings((listing) => listing.id === auction.postId ? null : listing)
   }
 
-  const handleSaveAuctionRule = async (auctionRoomId: string, rule: Pick<AuctionWatchlistRule, 'maxBid' | 'bidStep' | 'strategy' | 'jumpMultiplier' | 'sniperWindowSeconds' | 'marginOfSafety' | 'autoBidEnabled'> & { authorizationConfirmed: boolean }) => {
+  const handleSaveAuctionRule = (auctionRoomId: string, rule: Pick<AuctionWatchlistRule, 'maxBid' | 'bidStep' | 'strategy' | 'jumpMultiplier' | 'sniperWindowSeconds' | 'marginOfSafety' | 'autoBidEnabled'> & { authorizationConfirmed: boolean }) => runWithLoader('Saving watchlist rule…', async () => {
     if (!session) {
       setAuthMode('signin')
       return
@@ -661,9 +697,9 @@ export default function MarketplaceApp() {
     } finally {
       setWatchlistSavingId(null)
     }
-  }
+  })
 
-  const handleRemoveAuctionRule = async (auctionRoomId: string) => {
+  const handleRemoveAuctionRule = (auctionRoomId: string) => runWithLoader('Removing from watchlist…', async () => {
     if (!session) return
     setWatchlistSavingId(auctionRoomId)
     try {
@@ -678,7 +714,7 @@ export default function MarketplaceApp() {
     } finally {
       setWatchlistSavingId(null)
     }
-  }
+  })
 
   const handleToggleAuctionWatchlist = async (auction: Auction) => {
     if (!session) {
@@ -774,8 +810,8 @@ export default function MarketplaceApp() {
       return
     }
     setSelectedId(null)
-    setView('dashboard')
-    navigate('/seller', { replace: location.pathname === '/seller' || location.pathname.startsWith('/seller/') })
+    nextViewNavigation.current = 'dashboard'
+    void runWithLoader('Loading seller studio…', () => navigate('/seller', { replace: location.pathname === '/seller' || location.pathname.startsWith('/seller/') }))
   }
 
   useEffect(() => {
@@ -813,7 +849,7 @@ export default function MarketplaceApp() {
     setNotifications((items) => items.map((item) => item.id === id ? { ...item, isRead: updated.isRead } : item))
   }
 
-  const handleNotificationClick = async (notification: NotificationItem) => {
+  const handleNotificationClick = (notification: NotificationItem) => runWithLoader('Opening notification…', async () => {
     setNotificationsOpen(false)
     await handleNotificationRead(notification.id)
     if (notification.entityType === 'auction' && notification.entityId) {
@@ -825,9 +861,9 @@ export default function MarketplaceApp() {
     } else if (notification.entityType === 'SELLER_PAYOUT') {
       openSellerStudio()
     }
-  }
+  })
 
-  const handleNotificationDelete = async (notification: NotificationItem) => {
+  const handleNotificationDelete = (notification: NotificationItem) => runWithLoader('Deleting notification…', async () => {
     if (!session) return
     try {
       await deleteNotification(notification.id, session)
@@ -836,7 +872,7 @@ export default function MarketplaceApp() {
     } catch (caught) {
       showToast(caught instanceof Error ? caught.message : 'The notification could not be deleted. Please try again.', 'error')
     }
-  }
+  })
 
   const handleMarkAllNotificationsRead = async () => {
     if (!session) return
@@ -873,7 +909,7 @@ export default function MarketplaceApp() {
   </>
 
   return <Suspense fallback={<BrandLoader label="Loading marketplace…" />}>
-    {authMode ? <AuthPage initialMode={authMode} returnTo={returnPath(location.state)} onBack={backFromAuth} onAuthenticated={() => { setAuthMode(null); showToast('You’re signed in. Welcome to Quick Resell.') }} /> : <div className="min-h-screen bg-[#f5f7f5] text-[#192724]">
+    {authMode ? <><AuthPage initialMode={authMode} returnTo={returnPath(location.state)} onBack={backFromAuth} onAuthenticated={() => { setAuthMode(null); showToast('You’re signed in. Welcome to Quick Resell.') }} />{loadingLabel && <BrandLoader label={loadingLabel} overlay />}</> : <div className="min-h-screen bg-[#f5f7f5] text-[#192724]">
     <header className="sticky top-0 z-30 flex h-[68px] items-center gap-3 border-b border-[#e6ebe7] bg-white/95 px-3 backdrop-blur-md sm:gap-4 sm:px-6 lg:px-8">
       <button type="button" aria-label={mobileMenuOpen ? 'Close marketplace menu' : 'Open marketplace menu'} aria-expanded={mobileMenuOpen} onClick={() => setMobileMenuOpen((open) => !open)} className="grid size-10 shrink-0 place-items-center rounded-lg border border-[#e7ece8] text-[#52685d] transition hover:bg-[#f3f6f3] md:hidden">{mobileMenuOpen ? <X size={24} /> : <Menu size={24} />}</button>
       <button type="button" onClick={() => { setView('feed'); setSelectedId(null) }} className="flex shrink-0 items-center gap-2 sm:gap-2.5"><img src="/quickResell.svg" alt="" className="size-6 object-contain sm:size-8 md:size-10" /><span className="font-display text-xl leading-6 font-bold tracking-[-.04em] sm:text-3xl sm:leading-8 md:text-4xl md:leading-10">QUICK <span className="text-[#70917c]">RESELL</span></span></button>
@@ -902,7 +938,7 @@ export default function MarketplaceApp() {
             </div>
           </div>}
         </div>
-        {session ? <Suspense fallback={<span className="ml-1 size-10 animate-pulse rounded-full bg-[#e9f0e8]" />}><AccountMenu session={session} onSignOut={handleSignOut} onDeleted={() => { navigate('/', { replace: true }); showToast('Your account and associated QuickResell data have been deleted.') }} /></Suspense> : <Button variant="secondary" onClick={() => setAuthMode('signin')} className="ml-1 min-h-9 rounded-lg px-3 text-xs">Sign in</Button>}
+        {session ? <Suspense fallback={<span className="ml-1 size-10 animate-pulse rounded-full bg-[#e9f0e8]" />}><AccountMenu session={session} onSignOut={handleSignOut} onDeleted={() => { void runWithLoader('Returning to marketplace…', () => navigate('/', { replace: true })); showToast('Your account and associated QuickResell data have been deleted.') }} /></Suspense> : <Button variant="secondary" onClick={() => setAuthMode('signin')} className="ml-1 min-h-9 rounded-lg px-3 text-xs">Sign in</Button>}
       </div>
     </header>
     {mobileMenuOpen && <div className="fixed inset-0 z-40 md:hidden">
@@ -940,6 +976,7 @@ export default function MarketplaceApp() {
     </nav>
 
 
+    {loadingLabel && <BrandLoader label={loadingLabel} overlay />}
     {toast && <div role="status" className={`animate-toast-enter fixed bottom-20 left-1/2 z-[110] flex w-[calc(100%-32px)] max-w-md items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium text-white shadow-xl lg:bottom-6 ${toast.kind === 'error' ? 'bg-[#ad473c]' : 'bg-[#274c3d]'}`}><span className="flex-1">{toast.message}</span><IconButton label="Dismiss notification" className="size-8 text-white hover:bg-white/15 hover:text-white" onClick={() => setToast(null)}><X size={15} /></IconButton></div>}
       {(selectedAuction || view === 'shop') && <aside className="fixed right-[max(0px,calc(50vw-820px))] top-[68px] hidden h-[calc(100vh-68px)] w-[270px] border-l border-[#e6ebe7] bg-[#f9faf9] xl:block"><BidAdvert auction={selectedAuction ?? auctions.filter((item) => item.status === 'ACTIVE').sort((a, b) => new Date(a.endsAt).getTime() - new Date(b.endsAt).getTime())[0] ?? null} onOpen={(auction) => { setSelectedId(auction.id); setViewState('feed') }} /></aside>}
     </div>}
