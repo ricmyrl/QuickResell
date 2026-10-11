@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { ArrowDownToLine, ArrowUpRight, BadgeCheck, CircleDollarSign, Clock3, LoaderCircle, LockKeyhole, RefreshCw, WalletCards } from 'lucide-react'
 import { Button } from '../common/Button'
-import { cashOutSellerOrderItem, getWallet, type WalletData } from '../../services/cartApi'
+import { cashOutSellerOrderItem, getWallet, type WalletData, withdrawSellerEarnings } from '../../services/cartApi'
 import type { SellerWalletPayout } from '../../types'
 import { verifyPasskeyForAction } from '../../services/passkeyVerification'
 
@@ -30,9 +30,12 @@ const emptyWallet: WalletData = {
 const canCashOut = (payout: SellerWalletPayout) =>
   (payout.status === 'PENDING' || payout.status === 'BLOCKED')
   && payout.amountCents > 0
+  && payout.withdrawnCents === 0
   && ['READY_FOR_PICKUP', 'SHIPPED', 'COMPLETED'].includes(payout.fulfillmentStatus)
 
 function payoutStatusLabel(payout: SellerWalletPayout, payoutAccountVerified: boolean) {
+  if (payout.withdrawnCents >= payout.amountCents) return 'Included in a wallet withdrawal'
+  if (payout.withdrawnCents > 0) return 'Partially included in a wallet withdrawal'
   if (payout.status === 'NOT_TRACKED') return 'Historical sale · payout needs reconciliation'
   if (payout.status === 'SUCCESS') return 'Paid out'
   if (payout.status === 'PROCESSING') return 'Transfer processing'
@@ -53,8 +56,10 @@ export function WalletPage({ session, emailConfirmed, onRequestSignIn, onAddFund
 }) {
   const [wallet, setWallet] = useState<WalletData>(emptyWallet)
   const [amount, setAmount] = useState('5000')
+  const [withdrawAmount, setWithdrawAmount] = useState('')
   const [loading, setLoading] = useState(Boolean(session && emailConfirmed))
   const [busy, setBusy] = useState(false)
+  const [withdrawBusy, setWithdrawBusy] = useState(false)
   const [cashoutBusyId, setCashoutBusyId] = useState<string | null>(null)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
@@ -89,6 +94,61 @@ export function WalletPage({ session, emailConfirmed, onRequestSignIn, onAddFund
       setError(caught instanceof Error ? caught.message : 'The payout could not be requested.')
     } finally {
       setCashoutBusyId(null)
+    }
+  }
+
+  const withdraw = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!session) {
+      onRequestSignIn()
+      return
+    }
+    if (!emailConfirmed) {
+      setError('Confirm your email before withdrawing seller earnings.')
+      return
+    }
+    if (!wallet.sellerEarnings.payoutAccountVerified) {
+      setError('Verify your payout bank account before withdrawing seller earnings.')
+      return
+    }
+    const normalizedAmount = withdrawAmount.trim()
+    if (!/^\d+(\.\d{1,2})?$/.test(normalizedAmount)) {
+      setError('Enter a withdrawal amount in naira with up to two decimal places.')
+      return
+    }
+    const amountKobo = Math.round(Number(normalizedAmount) * 100)
+    const availableCents = Math.min(wallet.sellerEarnings.readyForCashoutCents, wallet.balanceCents)
+    if (!Number.isSafeInteger(amountKobo) || amountKobo <= 0) {
+      setError('Enter a withdrawal amount greater than ₦0.00.')
+      return
+    }
+    if (amountKobo > availableCents) {
+      setError(`You can withdraw up to ${ngnFormatter.format(availableCents / 100)} from fulfilled seller earnings.`)
+      return
+    }
+
+    setWithdrawBusy(true)
+    setError('')
+    setNotice('')
+    try {
+      const result = await verifyPasskeyForAction(session, () => withdrawSellerEarnings(amountKobo, session))
+      await refreshWallet()
+      setWithdrawAmount('')
+      setNotice(
+        result.status === 'SUCCESS'
+          ? 'Paystack reports your withdrawal as successful. Check your bank account to confirm receipt.'
+          : result.status === 'FAILED'
+            ? 'Paystack reports the withdrawal as failed. The amount has been returned to your wallet; contact support before trying again.'
+            : result.status === 'REVERSED'
+              ? 'Paystack reversed the withdrawal and the amount has been returned to your wallet. Contact support before trying again.'
+          : result.status === 'REVIEW_REQUIRED'
+            ? 'Your withdrawal was submitted and needs Paystack reconciliation. Contact support before retrying.'
+            : 'Withdrawal requested. Paystack will update the transfer status shortly.',
+      )
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Your seller earnings could not be withdrawn.')
+    } finally {
+      setWithdrawBusy(false)
     }
   }
 
@@ -226,6 +286,23 @@ export function WalletPage({ session, emailConfirmed, onRequestSignIn, onAddFund
         <p className="flex items-center gap-2 text-xs leading-5 text-[#765b22]"><LockKeyhole size={14} />Verify your payout bank account before cashing out these fulfilled sales.</p>
         <Button variant="secondary" onClick={onRequestSellerVerification} className="min-h-8 px-3 text-xs">Verify payout account <ArrowUpRight size={13} /></Button>
       </div>}
+      <form onSubmit={(event) => void withdraw(event)} className="mx-4 mb-4 rounded-xl border border-[#dfe9df] bg-[#f8fbf8] p-4 sm:mx-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div><h3 className="text-sm font-semibold text-[#30483a]">Withdraw to bank</h3><p className="mt-1 text-xs leading-5 text-[#7d8981]">Choose any amount up to your fulfilled seller earnings available for withdrawal.</p></div>
+          <p className="text-xs font-semibold text-[#477358]">Available: {ngnFormatter.format(Math.min(wallet.sellerEarnings.readyForCashoutCents, wallet.balanceCents) / 100)}</p>
+        </div>
+        <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+          <label className="sr-only" htmlFor="seller-withdraw-amount">Withdrawal amount in naira</label>
+          <div className="flex min-w-0 flex-1 items-center rounded-lg border border-[#dfe7df] bg-white px-3 focus-within:border-[#90aa98]">
+            <span className="text-sm font-semibold text-[#849189]">₦</span>
+            <input id="seller-withdraw-amount" type="number" min="0.01" max={Math.min(wallet.sellerEarnings.readyForCashoutCents, wallet.balanceCents) / 100} step="0.01" inputMode="decimal" value={withdrawAmount} onChange={(event) => setWithdrawAmount(event.target.value)} disabled={withdrawBusy || loading || !emailConfirmed || !wallet.sellerEarnings.payoutAccountVerified} placeholder="Enter amount" className="h-11 w-full bg-transparent px-2 text-sm font-semibold text-[#263b33] outline-none disabled:opacity-60" />
+          </div>
+          <Button type="submit" disabled={withdrawBusy || loading || !emailConfirmed || !wallet.sellerEarnings.payoutAccountVerified || Math.min(wallet.sellerEarnings.readyForCashoutCents, wallet.balanceCents) <= 0} icon={withdrawBusy ? <LoaderCircle size={15} className="animate-spin" /> : <ArrowUpRight size={15} />} className="min-h-11 justify-center px-4">
+            {withdrawBusy ? 'Requesting transfer…' : 'Withdraw with Paystack'}
+          </Button>
+        </div>
+        {!wallet.sellerEarnings.payoutAccountVerified && wallet.sellerEarnings.readyForCashoutCents > 0 && <p className="mt-2 text-xs text-[#765b22]">Verify your payout account to enable withdrawals.</p>}
+      </form>
       {wallet.sellerEarnings.payouts.length === 0
         ? <div className="border-t border-[#edf1ed] px-5 py-8 text-center text-sm text-[#87938b]">Paid sales with tracked earnings will appear here.</div>
         : <ul className="divide-y divide-[#edf1ed] border-t border-[#edf1ed]">
@@ -236,7 +313,7 @@ export function WalletPage({ session, emailConfirmed, onRequestSignIn, onAddFund
             {canCashOut(payout) && wallet.sellerEarnings.payoutAccountVerified && <Button disabled={!emailConfirmed || cashoutBusyId === payout.id} onClick={() => void cashOut(payout)} icon={cashoutBusyId === payout.id ? <LoaderCircle size={14} className="animate-spin" /> : <ArrowUpRight size={14} />} className="min-h-9 px-3 text-xs">{cashoutBusyId === payout.id ? 'Requesting…' : 'Cash out'}</Button>}
           </li>)}
         </ul>}
-      {wallet.sellerEarnings.payouts.length > 0 && <p className="border-t border-[#edf1ed] px-5 py-3 text-[11px] leading-5 text-[#89958e] sm:px-6">Cash out each fulfilled sale when you’re ready. Transfers require a verified payout account and passkey confirmation; settlement is in Nigerian naira.</p>}
+      {wallet.sellerEarnings.payouts.length > 0 && <p className="border-t border-[#edf1ed] px-5 py-3 text-[11px] leading-5 text-[#89958e] sm:px-6">Withdraw a custom amount from fulfilled earnings or cash out an individual sale. Transfers require a verified payout account and passkey confirmation; settlement is in Nigerian naira.</p>}
     </section>
 
     <section className="mt-7 overflow-hidden rounded-[22px] border border-[#e2e9e3] bg-white">

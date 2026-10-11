@@ -187,6 +187,14 @@ export async function getWallet(session?: Session | null): Promise<WalletData> {
   return request<WalletData>('/wallet', {}, session)
 }
 
+export async function withdrawSellerEarnings(amountKobo: number, session: Session): Promise<{ status: string; amountKobo: number }> {
+  const result = await request<{ withdrawal: { status: string; amountKobo: number } }>('/wallet/withdrawals', {
+    method: 'POST',
+    body: JSON.stringify({ amountKobo }),
+  }, session)
+  return result.withdrawal
+}
+
 export async function initializeWalletTopUp(amountKobo: number, session?: Session | null): Promise<{ authorization_url: string; access_code: string; reference: string; amountKobo: number; currency: string }> {
   return request<{ authorization_url: string; access_code: string; reference: string; amountKobo: number; currency: string }>('/wallet/topups/initialize', {
     method: 'POST',
