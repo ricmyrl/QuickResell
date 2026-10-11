@@ -1,5 +1,6 @@
 import type { Session } from '@supabase/supabase-js'
 import { resolveSession } from '../lib/resolveSession'
+import { reportApiFailure } from '../lib/errorHandler'
 import type { FulfillmentMethod, ListingReactionCounts, ListingReactionType, MarketplaceListing, PurchaseOrder, SellerOrderItem, SellerWalletPayout, ShoppingCartItem } from '../types'
 
 const pageHostApiUrl = typeof window !== 'undefined' && window.location.protocol === 'http:'
@@ -105,13 +106,17 @@ async function request<T>(path: string, init: RequestInit = {}, session?: Sessio
       if (error instanceof DOMException && error.name === 'AbortError') throw error
       lastError = error
       if (error instanceof CartApiError) {
+        reportApiFailure(error, 'Cart')
         throw error
       }
     }
   }
 
-  if (lastError instanceof CartApiError) throw lastError
-  throw new CartApiError('Could not connect to the marketplace server. Check your connection and try again.', 0, 'NETWORK_ERROR')
+  const failure = lastError instanceof CartApiError
+    ? lastError
+    : new CartApiError('Could not connect to the marketplace server. Check your connection and try again.', 0, 'NETWORK_ERROR')
+  reportApiFailure(failure, 'Cart')
+  throw failure
 }
 
 export async function getStoreListings(

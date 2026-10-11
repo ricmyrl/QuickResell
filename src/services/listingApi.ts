@@ -1,5 +1,6 @@
 import type { Session } from '@supabase/supabase-js'
 import { resolveSession } from '../lib/resolveSession'
+import { reportApiFailure } from '../lib/errorHandler'
 import type { Auction, IncrementCurveType, ListingReactionCounts, ListingReactionType, MarketplaceListing, ProductComment } from '../types'
 import type { Coordinates } from '../lib/geolocation'
 import { optimizeListingImage } from '../lib/optimizeListingImage'
@@ -110,8 +111,9 @@ async function apiRequest<T>(path: string, session?: Session | null, init: Reque
     }
   }
 
-  if (lastError instanceof Error) throw lastError
-  throw new Error(`Request failed for ${path}.`)
+  const failure = lastError instanceof Error ? lastError : new Error(`Request failed for ${path}.`)
+  reportApiFailure(failure, 'Listing')
+  throw failure
 }
 
 export async function getListingCategories(session?: Session | null): Promise<ListingCategory[]> {

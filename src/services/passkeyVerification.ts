@@ -1,6 +1,7 @@
 import { startAuthentication, startRegistration } from '@simplewebauthn/browser'
 import type { Session } from '@supabase/supabase-js'
 import { resolveSession } from '../lib/resolveSession'
+import { reportApiFailure } from '../lib/errorHandler'
 
 const pageHostApiUrl = typeof window !== 'undefined' && window.location.protocol === 'http:'
   ? `http://${window.location.hostname}:3000/api`
@@ -61,13 +62,17 @@ async function request<T>(
       }
       return payload as T
     } catch (error) {
-      if (error instanceof PasskeyRequestError) throw error
+      if (error instanceof PasskeyRequestError) {
+        reportApiFailure(error, 'Passkey')
+        throw error
+      }
       lastError = error
     }
   }
 
-  if (lastError instanceof Error) throw lastError
-  throw new Error('Passkey verification could not reach the server.')
+  const failure = lastError instanceof Error ? lastError : new Error('Passkey verification could not reach the server.')
+  reportApiFailure(failure, 'Passkey')
+  throw failure
 }
 
 function assertPlatformAuthenticatorAvailable(): Promise<void> {

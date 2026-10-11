@@ -1,5 +1,6 @@
 import type { Session } from '@supabase/supabase-js'
 import { resolveSession } from '../lib/resolveSession'
+import { reportApiFailure } from '../lib/errorHandler'
 import type { Auction, AuctionWatchlistRule, Bid, IncrementCurveType, ListingReactionCounts, ListingReactionType, NotificationItem, Verdict } from '../types'
 
 const pageHostApiUrl = typeof window !== 'undefined' && window.location.protocol === 'http:'
@@ -132,8 +133,9 @@ async function request<T>(path: string, init: RequestInit = {}, session?: Sessio
     }
   }
 
-  if (lastError instanceof Error) throw lastError
-  throw new Error(`Request failed for ${path}.`)
+  const failure = lastError instanceof Error ? lastError : new Error(`Request failed for ${path}.`)
+  reportApiFailure(failure, 'Marketplace')
+  throw failure
 }
 
 export async function askScout(messages: ScoutChatMessage[], context: ScoutChatContext): Promise<ScoutChatReply> {
