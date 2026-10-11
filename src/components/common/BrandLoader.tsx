@@ -10,7 +10,7 @@ export function BrandLoader({ label, overlay = false }: BrandLoaderProps) {
         <span aria-hidden="true" className="absolute inset-1 rounded-full border-2 border-[#dfe8e1] border-r-[#d4f06b] border-t-[#70917c] animate-spin motion-reduce:animate-none" />
         <img src="/quickResell.svg" alt="" className="size-11 object-contain" />
       </div>
-      <span className="font-display text-base font-bold tracking-[-.03em]">Quick <span className="text-[#70917c]">Resell</span></span>
+      <span className="font-display text-base font-bold tracking-[-.03em]">QUICK <span className="text-[#70917c]">RESELL</span></span>
       <span className="text-xs text-current/70">{label}</span>
     </div>
   </div>
