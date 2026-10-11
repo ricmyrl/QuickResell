@@ -63,6 +63,7 @@ export function WalletPage({ session, emailConfirmed, onRequestSignIn, onAddFund
   const [cashoutBusyId, setCashoutBusyId] = useState<string | null>(null)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const availableToWithdrawCents = Math.min(wallet.sellerEarnings.readyForCashoutCents, wallet.balanceCents)
 
   const refreshWallet = useCallback(async () => {
     if (!session || !emailConfirmed) return
@@ -289,19 +290,23 @@ export function WalletPage({ session, emailConfirmed, onRequestSignIn, onAddFund
       <form onSubmit={(event) => void withdraw(event)} className="mx-4 mb-4 rounded-xl border border-[#dfe9df] bg-[#f8fbf8] p-4 sm:mx-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div><h3 className="text-sm font-semibold text-[#30483a]">Withdraw to bank</h3><p className="mt-1 text-xs leading-5 text-[#7d8981]">Choose any amount up to your fulfilled seller earnings available for withdrawal.</p></div>
-          <p className="text-xs font-semibold text-[#477358]">Available: {ngnFormatter.format(Math.min(wallet.sellerEarnings.readyForCashoutCents, wallet.balanceCents) / 100)}</p>
+          <p className="text-xs font-semibold text-[#477358]">Available: {ngnFormatter.format(availableToWithdrawCents / 100)}</p>
         </div>
         <div className="mt-3 flex flex-col gap-2 sm:flex-row">
           <label className="sr-only" htmlFor="seller-withdraw-amount">Withdrawal amount in naira</label>
           <div className="flex min-w-0 flex-1 items-center rounded-lg border border-[#dfe7df] bg-white px-3 focus-within:border-[#90aa98]">
             <span className="text-sm font-semibold text-[#849189]">₦</span>
-            <input id="seller-withdraw-amount" type="number" min="0.01" max={Math.min(wallet.sellerEarnings.readyForCashoutCents, wallet.balanceCents) / 100} step="0.01" inputMode="decimal" value={withdrawAmount} onChange={(event) => setWithdrawAmount(event.target.value)} disabled={withdrawBusy || loading || !emailConfirmed || !wallet.sellerEarnings.payoutAccountVerified} placeholder="Enter amount" className="h-11 w-full bg-transparent px-2 text-sm font-semibold text-[#263b33] outline-none disabled:opacity-60" />
+            <input id="seller-withdraw-amount" type="number" min="0.01" max={availableToWithdrawCents / 100} step="0.01" inputMode="decimal" value={withdrawAmount} onChange={(event) => setWithdrawAmount(event.target.value)} disabled={withdrawBusy || loading || !emailConfirmed || !wallet.sellerEarnings.payoutAccountVerified || availableToWithdrawCents <= 0} placeholder="Enter amount" className="h-11 w-full bg-transparent px-2 text-sm font-semibold text-[#263b33] outline-none disabled:opacity-60" />
           </div>
-          <Button type="submit" disabled={withdrawBusy || loading || !emailConfirmed || !wallet.sellerEarnings.payoutAccountVerified || Math.min(wallet.sellerEarnings.readyForCashoutCents, wallet.balanceCents) <= 0} icon={withdrawBusy ? <LoaderCircle size={15} className="animate-spin" /> : <ArrowUpRight size={15} />} className="min-h-11 justify-center px-4">
-            {withdrawBusy ? 'Requesting transfer…' : 'Withdraw with Paystack'}
+          <Button type={wallet.sellerEarnings.payoutAccountVerified ? 'submit' : 'button'} onClick={!wallet.sellerEarnings.payoutAccountVerified ? onRequestSellerVerification : undefined} disabled={withdrawBusy || loading || !emailConfirmed || (wallet.sellerEarnings.payoutAccountVerified && availableToWithdrawCents <= 0)} icon={withdrawBusy ? <LoaderCircle size={15} className="animate-spin" /> : wallet.sellerEarnings.payoutAccountVerified ? <ArrowUpRight size={15} /> : <LockKeyhole size={15} />} className="min-h-11 justify-center px-4">
+            {withdrawBusy ? 'Requesting transfer…' : wallet.sellerEarnings.payoutAccountVerified ? 'Withdraw with Paystack' : 'Verify payout account'}
           </Button>
         </div>
-        {!wallet.sellerEarnings.payoutAccountVerified && wallet.sellerEarnings.readyForCashoutCents > 0 && <p className="mt-2 text-xs text-[#765b22]">Verify your payout account to enable withdrawals.</p>}
+        {!emailConfirmed
+          ? <p className="mt-2 text-xs text-[#765b22]">Confirm your email to enable withdrawals.</p>
+          : !loading && availableToWithdrawCents <= 0
+            ? <p className="mt-2 text-xs text-[#765b22]">{wallet.sellerEarnings.readyForCashoutCents <= 0 ? 'No fulfilled seller earnings are currently available. Mark a paid order as ready for pickup or shipped first.' : 'Your wallet balance is too low. Funds already spent from your wallet cannot be withdrawn again.'}</p>
+            : !wallet.sellerEarnings.payoutAccountVerified && <p className="mt-2 text-xs text-[#765b22]">Verify your payout account to enable withdrawals.</p>}
       </form>
       {wallet.sellerEarnings.payouts.length === 0
         ? <div className="border-t border-[#edf1ed] px-5 py-8 text-center text-sm text-[#87938b]">Paid sales with tracked earnings will appear here.</div>
