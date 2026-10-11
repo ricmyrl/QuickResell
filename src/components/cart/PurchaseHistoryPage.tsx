@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Check, LoaderCircle, MapPin, PackageCheck, Printer, Truck } from 'lucide-react'
+import { Check, LoaderCircle, MapPin, PackageCheck, Printer, RefreshCw, Truck } from 'lucide-react'
 import type { Session } from '@supabase/supabase-js'
 import type { FulfillmentMethod, PurchaseOrder, PurchaseOrderItem } from '../../types'
 import { CartApiError, confirmOrderItemReceived, getMyOrders } from '../../services/cartApi'
@@ -41,17 +41,40 @@ export function PurchaseHistoryPage({ session, emailConfirmed, onRequestSignIn }
   useEffect(() => {
     if (!session) return
     let cancelled = false
-    void getMyOrders(session).then((items) => {
-      if (!cancelled) setOrders(items)
-    }).catch((caught: unknown) => {
-      if (!cancelled) {
-        setError(caught instanceof Error ? caught.message : 'Your orders could not be loaded.')
-        setErrorRequestId(caught instanceof CartApiError ? caught.requestId ?? '' : '')
+    let requestInProgress = false
+    const loadOrders = async () => {
+      if (requestInProgress) return
+      requestInProgress = true
+      try {
+        const items = await getMyOrders(session)
+        if (!cancelled) {
+          setOrders(items)
+          setError('')
+          setErrorRequestId('')
+        }
+      } catch (caught: unknown) {
+        if (!cancelled) {
+          setError(caught instanceof Error ? caught.message : 'Your orders could not be loaded.')
+          setErrorRequestId(caught instanceof CartApiError ? caught.requestId ?? '' : '')
+        }
+      } finally {
+        requestInProgress = false
+        if (!cancelled) setLoading(false)
       }
-    }).finally(() => {
-      if (!cancelled) setLoading(false)
-    })
-    return () => { cancelled = true }
+    }
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === 'visible') void loadOrders()
+    }
+    void loadOrders()
+    const timer = window.setInterval(refreshWhenVisible, 30_000)
+    window.addEventListener('focus', refreshWhenVisible)
+    document.addEventListener('visibilitychange', refreshWhenVisible)
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+      window.removeEventListener('focus', refreshWhenVisible)
+      document.removeEventListener('visibilitychange', refreshWhenVisible)
+    }
   }, [session, reloadKey])
 
   const confirmReceived = async (item: PurchaseOrderItem, orderId: string) => {
@@ -77,7 +100,7 @@ export function PurchaseHistoryPage({ session, emailConfirmed, onRequestSignIn }
   }
 
   return <section className="mx-auto min-w-0 max-w-4xl py-4 sm:py-8">
-    <div className="mb-5"><p className="mb-2 text-xs font-bold uppercase tracking-[.12em] text-[#698572]">Buyer account</p><h1 className="font-display text-[30px] font-semibold text-[#1c2b26]">My orders</h1><p className="mt-1 text-sm text-[#819087]">Follow payment and pickup or shipping updates from each seller.</p></div>
+    <div className="mb-5 flex flex-wrap items-center justify-between gap-3"><div><p className="mb-2 text-xs font-bold uppercase tracking-[.12em] text-[#698572]">Buyer account</p><h1 className="font-display text-[30px] font-semibold text-[#1c2b26]">My orders</h1><p className="mt-1 text-sm text-[#819087]">Follow payment and pickup or shipping updates from each seller.</p></div>{session && <Button variant="secondary" disabled={loading} onClick={() => { setError(''); setErrorRequestId(''); setLoading(orders.length === 0); setReloadKey((value) => value + 1) }} icon={loading ? <LoaderCircle size={15} className="animate-spin" /> : <RefreshCw size={15} />} className="min-h-9 px-3 text-xs">{loading ? 'Checking…' : 'Refresh orders'}</Button>}</div>
     {error && <div role="alert" className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#f0d7d2] bg-[#fff5f2] px-4 py-3 text-sm text-[#a34237]"><div><p>{error}</p>{errorRequestId && <p className="mt-1 text-xs">Support reference: {errorRequestId}</p>}</div>{session && <Button variant="secondary" onClick={() => { setLoading(true); setError(''); setErrorRequestId(''); setReloadKey((value) => value + 1) }} className="min-h-8 px-3 text-xs">Try again</Button>}</div>}
     {!session ? <div className="rounded-[18px] border border-[#e5eae6] bg-white px-6 py-12 text-center"><PackageCheck size={25} className="mx-auto text-[#6f8b76]" /><p className="mt-3 text-sm text-[#728178]">Sign in to see order tracking.</p><Button onClick={onRequestSignIn} className="mt-4">Sign in</Button></div>
       : loading ? <div className="grid min-h-48 place-items-center rounded-[18px] border border-[#e5eae6] bg-white"><LoaderCircle size={24} className="animate-spin text-[#6f8b76]" /></div>
