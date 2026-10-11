@@ -384,6 +384,7 @@ export function WalletPage({ session, emailConfirmed, onRequestSignIn, onAddFund
           <span className="min-w-0 flex-1">
             <span className="block text-sm font-semibold text-[#35483b]">Bank withdrawal</span>
             <span className="mt-1 block text-xs text-[#89958e]">{dateFormatter.format(new Date(withdrawal.createdAt))} · {withdrawal.status.replaceAll('_', ' ').toLowerCase()}</span>
+            <span className="mt-1 block break-all font-mono text-[10px] text-[#89958e]">Paystack reference: {withdrawal.transferReference}</span>
           </span>
           <span className="text-sm font-semibold text-[#405549]">{ngnFormatter.format(withdrawal.amountKobo / 100)}</span>
           {(withdrawal.status === 'REVIEW_REQUIRED' || withdrawal.status === 'PROCESSING') && <Button variant="secondary" disabled={!emailConfirmed || reconcileWithdrawalBusyId === withdrawal.id} onClick={() => void reconcileWithdrawal(withdrawal)} icon={<RefreshCw size={14} className={reconcileWithdrawalBusyId === withdrawal.id ? 'animate-spin' : ''} />} className="min-h-9 px-3 text-xs">{reconcileWithdrawalBusyId === withdrawal.id ? 'Checking…' : 'Check Paystack status'}</Button>}

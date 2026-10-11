@@ -188,6 +188,7 @@ export type WalletData = {
 export type SellerWalletWithdrawal = {
   id: string
   amountKobo: number
+  transferReference: string
   status: 'PROCESSING' | 'SUCCESS' | 'FAILED' | 'REVERSED' | 'REVIEW_REQUIRED'
   createdAt: string
   updatedAt: string
